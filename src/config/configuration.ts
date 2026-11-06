@@ -21,3 +21,4 @@ export default () => ({
     port: parseInt(process.env.REDIS_PORT || '6379', 10),
   },
 });
+

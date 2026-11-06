@@ -36,3 +36,4 @@ export class HelloController {
     return this.helloService.getGreeting(query.name, lang);
   }
 }
+

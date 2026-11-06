@@ -10,6 +10,7 @@ import {
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import configuration from './config/configuration.js';
+import { ArticlesModule } from './articles/articles.module.js';
 import { HelloModule } from './modules/hello/hello.module.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,6 +40,7 @@ const __dirname = path.dirname(__filename);
       inject: [ConfigService],
     }),
     HelloModule,
+    ArticlesModule,
   ],
 })
 export class AppModule {}

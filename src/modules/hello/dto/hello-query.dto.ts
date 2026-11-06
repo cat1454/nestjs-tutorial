@@ -21,3 +21,4 @@ export class HelloQueryDto {
   @IsEnum(['en', 'vi'], { message: 'Ngôn ngữ hỗ trợ chỉ bao gồm en hoặc vi' })
   lang?: string;
 }
+

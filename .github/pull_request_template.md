@@ -41,3 +41,4 @@
 - [x] Đã cấu hình `.gitignore` đầy đủ (loại bỏ `node_modules`, `dist`, `.env`).
 - [x] Toàn bộ test case đã vượt qua (Green).
 - [x] Sẵn sàng gửi GitHub Copilot review.
+

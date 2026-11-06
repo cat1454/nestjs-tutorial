@@ -39,3 +39,4 @@ export class HelloResponseDto {
   @ApiProperty({ example: '2026-11-06T08:00:00.000Z' })
   timestamp: string;
 }
+
