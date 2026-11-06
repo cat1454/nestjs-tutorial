@@ -1,0 +1,7 @@
+{
+  "internal_server_error": "Đã xảy ra lỗi máy chủ nội bộ.",
+  "bad_request": "Dữ liệu yêu cầu không hợp lệ.",
+  "not_found": "Không tìm thấy tài nguyên yêu cầu.",
+  "unauthorized": "Truy cập không được ủy quyền. Vui lòng đăng nhập trước."
+}
+
