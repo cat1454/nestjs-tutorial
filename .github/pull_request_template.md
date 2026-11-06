@@ -5,8 +5,9 @@
 - [x] Tích hợp **Swagger UI** (`@nestjs/swagger`) tương tác trực quan tại `/api/docs`.
 - [x] Cấu hình hệ thống **Đa ngôn ngữ (i18n)** (`nestjs-i18n`) với từ điển tiếng Anh (`en`) và tiếng Việt (`vi`), tự động phân giải qua query param (`?lang=vi`), header (`Accept-Language: vi`), hoặc fallback `en`.
 - [x] Xây dựng endpoint mẫu **Hello World** (`GET /api/v1/hello`) kiểm tra sức khỏe hệ thống và chào mừng theo đa ngôn ngữ.
+- [x] Xây dựng module **Articles mẫu (In-memory)** cho bài thực hành Overview: kiểm thử `ParseIntPipe` (400) và `NotFoundException` (404).
 - [x] Chuẩn hóa hệ thống với **Global ValidationPipe**, **TransformInterceptor** (Response Envelope) và **HttpExceptionFilter**.
-- [x] Viết bộ kiểm thử tự động: Unit Test (`hello.controller.spec.ts`) và E2E Test (`app.e2e-spec.ts`).
+- [x] Viết bộ kiểm thử tự động: Unit Test (`hello.controller.spec.ts`) và E2E Test (`app.e2e-spec.ts`, `articles.e2e-spec.ts` - 7/7 tests passed).
 
 ---
 
