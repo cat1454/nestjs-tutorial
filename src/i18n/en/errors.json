@@ -1,0 +1,6 @@
+{
+  "internal_server_error": "Internal server error occurred.",
+  "bad_request": "Bad request data provided.",
+  "not_found": "Resource not found.",
+  "unauthorized": "Unauthorized access. Please login first."
+}
