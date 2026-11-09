@@ -60,4 +60,14 @@ describe('Hello World API (e2e)', () => {
     expect(res.body.data.greeting).toContain('Xin chào Sunner!');
     expect(res.body.data.locale).toBe('vi');
   });
+
+  it('/api/v1/hello (GET) - Language alias ?l=vi works without 400', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/hello?l=vi&name=Codex')
+      .expect(200);
+
+    expect(res.body).toHaveProperty('statusCode', 200);
+    expect(res.body.data.greeting).toContain('Xin chào Codex!');
+    expect(res.body.data.locale).toBe('vi');
+  });
 });

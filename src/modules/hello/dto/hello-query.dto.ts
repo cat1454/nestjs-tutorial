@@ -20,5 +20,14 @@ export class HelloQueryDto {
   @IsOptional()
   @IsEnum(['en', 'vi'], { message: 'Ngôn ngữ hỗ trợ chỉ bao gồm en hoặc vi' })
   lang?: string;
+
+  @ApiPropertyOptional({
+    description: 'Bí danh (alias) rút gọn của tham số ngôn ngữ (en hoặc vi)',
+    enum: ['en', 'vi'],
+    example: 'vi',
+  })
+  @IsOptional()
+  @IsEnum(['en', 'vi'], { message: 'Ngôn ngữ hỗ trợ chỉ bao gồm en hoặc vi' })
+  l?: string;
 }
 

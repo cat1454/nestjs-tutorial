@@ -32,7 +32,7 @@ export class HelloController {
     @Query() query: HelloQueryDto,
     @I18n() i18n: I18nContext,
   ) {
-    const lang = query.lang || i18n?.lang;
+    const lang = query.lang || query.l || i18n?.lang;
     return this.helloService.getGreeting(query.name, lang);
   }
 }
