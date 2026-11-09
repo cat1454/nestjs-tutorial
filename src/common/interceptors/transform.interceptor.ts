@@ -21,7 +21,6 @@ export class TransformInterceptor<T>
 
     return next.handle().pipe(
       map((data) => {
-        // Nếu data đã có dạng payload chuẩn hoặc là chuỗi / đối tượng
         let message = 'Success';
         let payload = data;
 
@@ -37,4 +36,3 @@ export class TransformInterceptor<T>
     );
   }
 }
-

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import {
   AcceptLanguageResolver,
   HeaderResolver,
@@ -9,9 +10,13 @@ import {
 } from 'nestjs-i18n';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import configuration from './config/configuration.js';
 import { ArticlesModule } from './articles/articles.module.js';
+import { RedisModule } from './common/redis/redis.module.js';
+import configuration from './config/configuration.js';
+import { AuthModule } from './modules/auth/auth.module.js';
 import { HelloModule } from './modules/hello/hello.module.js';
+import { UserEntity } from './modules/users/entities/user.entity.js';
+import { UsersModule } from './modules/users/users.module.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,6 +44,25 @@ const __dirname = path.dirname(__filename);
       ],
       inject: [ConfigService],
     }),
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        type: 'postgres',
+        host: configService.get<string>('database.host', 'localhost'),
+        port: configService.get<number>('database.port', 5432),
+        username: configService.get<string>('database.username', 'postgres'),
+        password: configService.get<string>('database.password', 'postgres'),
+        database: configService.get<string>('database.name', 'sun_conduit_dev'),
+        entities: [UserEntity],
+        synchronize: false,
+        autoLoadEntities: true,
+        logging: configService.get<string>('nodeEnv') === 'development',
+      }),
+      inject: [ConfigService],
+    }),
+    RedisModule,
+    UsersModule,
+    AuthModule,
     HelloModule,
     ArticlesModule,
   ],
