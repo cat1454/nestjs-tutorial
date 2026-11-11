@@ -2,6 +2,6 @@
   "greeting": "Hello, {name}! Welcome to Sun* NestJS Tutorial API.",
   "health_check": "System is healthy and operational.",
   "status_success": "Success",
-  "welcome_title": "Welcome to Sun* NestJS API"
+  "welcome_title": "Welcome to Sun* NestJS API",
+  "logout_success": "Logged out successfully"
 }
-
