@@ -2,6 +2,15 @@
   "internal_server_error": "Internal server error occurred.",
   "bad_request": "Bad request data provided.",
   "not_found": "Resource not found.",
-  "unauthorized": "Unauthorized access. Please login first."
+  "unauthorized": "Unauthorized access. Please login first.",
+  "missing_token": "Missing authorization token",
+  "token_revoked": "Token has been revoked",
+  "invalid_token": "Invalid or expired token",
+  "email_in_use": "Email is already in use",
+  "username_in_use": "Username is already in use",
+  "user_conflict": "Email or username is already in use",
+  "invalid_credentials": "Invalid email or password",
+  "user_not_found": "User not found",
+  "logout_failed": "Unable to process logout request",
+  "redis_unavailable": "Authentication cache service is temporarily unavailable"
 }
-

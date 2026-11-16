@@ -2,6 +2,15 @@
   "internal_server_error": "Đã xảy ra lỗi máy chủ nội bộ.",
   "bad_request": "Dữ liệu yêu cầu không hợp lệ.",
   "not_found": "Không tìm thấy tài nguyên yêu cầu.",
-  "unauthorized": "Truy cập không được ủy quyền. Vui lòng đăng nhập trước."
+  "unauthorized": "Truy cập không được ủy quyền. Vui lòng đăng nhập trước.",
+  "missing_token": "Missing authorization token",
+  "token_revoked": "Token has been revoked",
+  "invalid_token": "Invalid or expired token",
+  "email_in_use": "Email này đã được sử dụng",
+  "username_in_use": "Username này đã được sử dụng",
+  "user_conflict": "Email hoặc username này đã được sử dụng",
+  "invalid_credentials": "Email hoặc mật khẩu không chính xác",
+  "user_not_found": "Không tìm thấy thông tin người dùng",
+  "logout_failed": "Không thể xử lý yêu cầu đăng xuất",
+  "redis_unavailable": "Dịch vụ bộ nhớ đệm xác thực tạm thời không khả dụng"
 }
-
