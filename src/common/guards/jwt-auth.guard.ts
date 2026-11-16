@@ -8,7 +8,17 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { I18nContext, I18nService } from 'nestjs-i18n';
+import { DEFAULT_LANGUAGE } from '../../modules/auth/auth.constants.js';
+import { AuthenticatedRequest } from '../decorators/current-user.decorator.js';
 import { RedisService } from '../redis/redis.service.js';
+
+interface VerifiedJwtPayload {
+  sub: string;
+  email: string;
+  username: string;
+  jti?: string;
+  exp?: number;
+}
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -19,40 +29,45 @@ export class JwtAuthGuard implements CanActivate {
     private readonly i18n: I18nService,
   ) {}
 
+  private get lang(): string {
+    return I18nContext.current()?.lang ?? DEFAULT_LANGUAGE;
+  }
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<Request>();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const token = this.extractTokenFromHeader(request);
-    const lang = I18nContext.current()?.lang;
 
     if (!token) {
-      const message = await this.i18n.t('errors.missing_token', { lang });
+      const message = await this.i18n.t('errors.missing_token', {
+        lang: this.lang,
+      });
       throw new UnauthorizedException(message);
     }
 
-    let payload: {
-      sub: string;
-      email: string;
-      username: string;
-      jti?: string;
-      exp?: number;
-    };
+    let payload: VerifiedJwtPayload;
 
     try {
       const secret = this.configService.getOrThrow<string>('jwt.secret');
-      payload = await this.jwtService.verifyAsync(token, { secret });
+      payload = await this.jwtService.verifyAsync<VerifiedJwtPayload>(token, {
+        secret,
+      });
     } catch {
-      const message = await this.i18n.t('errors.invalid_token', { lang });
+      const message = await this.i18n.t('errors.invalid_token', {
+        lang: this.lang,
+      });
       throw new UnauthorizedException(message);
     }
 
     const blacklistKey = payload.jti || token;
     const isRevoked = await this.redisService.isBlacklisted(blacklistKey);
     if (isRevoked) {
-      const message = await this.i18n.t('errors.token_revoked', { lang });
+      const message = await this.i18n.t('errors.token_revoked', {
+        lang: this.lang,
+      });
       throw new UnauthorizedException(message);
     }
 
-    (request as any).user = {
+    request.user = {
       id: payload.sub,
       email: payload.email,
       username: payload.username,

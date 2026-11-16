@@ -8,6 +8,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
 import { I18nContext, I18nService } from 'nestjs-i18n';
+import { DEFAULT_LANGUAGE } from '../../modules/auth/auth.constants.js';
+
+const REDIS_MAX_RETRIES = 3;
+const REDIS_RETRY_DELAY_STEP_MS = 100;
+const REDIS_MAX_RETRY_DELAY_MS = 3000;
+const REDIS_BLACKLIST_PREFIX = 'blacklist:';
+const REDIS_REVOKED_VALUE = 'revoked';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
@@ -19,6 +26,10 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     private readonly i18n: I18nService,
   ) {}
 
+  private get lang(): string {
+    return I18nContext.current()?.lang ?? DEFAULT_LANGUAGE;
+  }
+
   async onModuleInit() {
     const host = this.configService.getOrThrow<string>('redis.host');
     const port = this.configService.getOrThrow<number>('redis.port');
@@ -26,8 +37,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.client = new Redis({
       host,
       port,
-      maxRetriesPerRequest: 3,
-      retryStrategy: (times: number) => Math.min(times * 100, 3000),
+      maxRetriesPerRequest: REDIS_MAX_RETRIES,
+      retryStrategy: (times: number) =>
+        Math.min(times * REDIS_RETRY_DELAY_STEP_MS, REDIS_MAX_RETRY_DELAY_MS),
       lazyConnect: true,
     });
 
@@ -52,8 +64,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async throwRedisUnavailable(): Promise<never> {
-    const lang = I18nContext.current()?.lang;
-    const message = await this.i18n.t('errors.redis_unavailable', { lang });
+    const message = await this.i18n.t('errors.redis_unavailable', {
+      lang: this.lang,
+    });
     throw new ServiceUnavailableException(message);
   }
 
@@ -79,12 +92,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async addToBlacklist(jti: string, expirySeconds: number): Promise<void> {
-    const key = `blacklist:${jti}`;
-    await this.set(key, 'revoked', expirySeconds);
+    const key = `${REDIS_BLACKLIST_PREFIX}${jti}`;
+    await this.set(key, REDIS_REVOKED_VALUE, expirySeconds);
   }
 
   async isBlacklisted(jti: string): Promise<boolean> {
-    const key = `blacklist:${jti}`;
+    const key = `${REDIS_BLACKLIST_PREFIX}${jti}`;
     return this.exists(key);
   }
 }

@@ -19,7 +19,10 @@ export class UsersService {
     return this.userRepository.findOne({ where: { id } });
   }
 
-  async findByEmail(email: string, includePassword = false): Promise<UserEntity | null> {
+  async findByEmail(
+    email: string,
+    includePassword = false,
+  ): Promise<UserEntity | null> {
     if (includePassword) {
       return this.userRepository
         .createQueryBuilder('user')
@@ -30,13 +33,9 @@ export class UsersService {
     return this.userRepository.findOne({ where: { email } });
   }
 
-  async findByEmailOrUsername(
-    email: string,
-    username: string,
-  ): Promise<UserEntity | null> {
-    return this.userRepository.findOne({
-      where: [{ email }, { username }],
+  async existsByEmail(email: string): Promise<boolean> {
+    return this.userRepository.exists({
+      where: { email },
     });
   }
 }
-

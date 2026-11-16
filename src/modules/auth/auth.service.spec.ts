@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RedisService } from '../../common/redis/redis.service.js';
 import { UserEntity } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
+import { PG_UNIQUE_VIOLATION_CODE } from './auth.constants.js';
 import { AuthService } from './auth.service.js';
 
 describe('AuthService', () => {
@@ -37,7 +38,7 @@ describe('AuthService', () => {
     mockUser.password = await bcrypt.hash('password123', 10);
 
     usersService = {
-      findByEmailOrUsername: vi.fn(),
+      existsByEmail: vi.fn(),
       findByEmail: vi.fn(),
       findById: vi.fn(),
       create: vi.fn(),
@@ -84,7 +85,7 @@ describe('AuthService', () => {
 
   describe('register', () => {
     it('should register a new user with normalized lowercase email and return auth response', async () => {
-      usersService.findByEmailOrUsername!.mockResolvedValue(null);
+      usersService.existsByEmail!.mockResolvedValue(false);
       usersService.create!.mockResolvedValue(mockUser);
 
       const result = await authService.register({
@@ -95,9 +96,8 @@ describe('AuthService', () => {
         },
       });
 
-      expect(usersService.findByEmailOrUsername).toHaveBeenCalledWith(
+      expect(usersService.existsByEmail).toHaveBeenCalledWith(
         'test@example.com',
-        'testuser',
       );
       expect(result.user.email).toBe('test@example.com');
       expect(result.user.username).toBe('testuser');
@@ -105,8 +105,8 @@ describe('AuthService', () => {
       expect(usersService.create).toHaveBeenCalled();
     });
 
-    it('should throw ConflictException if email or username is already taken', async () => {
-      usersService.findByEmailOrUsername!.mockResolvedValue(mockUser);
+    it('should throw ConflictException if email is already taken', async () => {
+      usersService.existsByEmail!.mockResolvedValue(true);
 
       await expect(
         authService.register({
@@ -120,8 +120,10 @@ describe('AuthService', () => {
     });
 
     it('should throw ConflictException on PostgreSQL unique constraint violation (23505)', async () => {
-      usersService.findByEmailOrUsername!.mockResolvedValue(null);
-      usersService.create!.mockRejectedValue({ code: '23505' });
+      usersService.existsByEmail!.mockResolvedValue(false);
+      usersService.create!.mockRejectedValue({
+        code: PG_UNIQUE_VIOLATION_CODE,
+      });
 
       await expect(
         authService.register({
@@ -196,11 +198,14 @@ describe('AuthService', () => {
   describe('logout', () => {
     it('should blacklist the token jti in Redis with remaining TTL (exp - now)', async () => {
       const futureExp = Math.floor(Date.now() / 1000) + 1800;
-      const result = await authService.logout(
-        'sample-token',
-        'jti-uuid-1',
-        futureExp,
-      );
+      const result = await authService.logout({
+        id: 'uuid-1234',
+        email: 'test@example.com',
+        username: 'testuser',
+        jti: 'jti-uuid-1',
+        exp: futureExp,
+        token: 'sample-token',
+      });
 
       expect(redisService.addToBlacklist).toHaveBeenCalledWith(
         'jti-uuid-1',
@@ -212,9 +217,14 @@ describe('AuthService', () => {
     it('should throw BadRequestException if token has no exp claim', async () => {
       jwtService.decode!.mockReturnValue(null);
 
-      await expect(authService.logout('invalid-token')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        authService.logout({
+          id: 'uuid-1234',
+          email: 'test@example.com',
+          username: 'testuser',
+          token: 'invalid-token',
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

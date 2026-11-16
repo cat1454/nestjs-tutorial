@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsDefined,
@@ -7,66 +7,50 @@ import {
   IsString,
   MaxLength,
   MinLength,
-  ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import {
+  EMAIL_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  USERNAME_MAX_LENGTH,
+} from '../auth.constants.js';
 
 export class RegisterDataDto {
-  @ApiProperty({ example: 'johndoe', maxLength: 100 })
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @ApiProperty({ example: 'johndoe', maxLength: USERNAME_MAX_LENGTH })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsNotEmpty()
   @IsString()
-  @MaxLength(100)
+  @MaxLength(USERNAME_MAX_LENGTH)
   username: string;
 
-  @ApiProperty({ example: 'john@example.com', maxLength: 255 })
-  @Transform(({ value }) =>
+  @ApiProperty({ example: 'john@example.com', maxLength: EMAIL_MAX_LENGTH })
+  @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
   @IsNotEmpty()
   @IsEmail()
-  @MaxLength(255)
+  @MaxLength(EMAIL_MAX_LENGTH)
   email: string;
 
-  @ApiProperty({ example: 'password123', minLength: 6, maxLength: 72 })
+  @ApiProperty({
+    example: 'password123',
+    minLength: PASSWORD_MIN_LENGTH,
+    maxLength: PASSWORD_MAX_LENGTH,
+  })
   @IsNotEmpty()
   @IsString()
-  @MinLength(6)
-  @MaxLength(72)
+  @MinLength(PASSWORD_MIN_LENGTH)
+  @MaxLength(PASSWORD_MAX_LENGTH)
   password: string;
 }
 
 export class RegisterDto {
-  @ApiPropertyOptional({ type: RegisterDataDto })
-  @ValidateIf((o) => !o.username && !o.email && !o.password)
+  @ApiProperty({ type: RegisterDataDto })
   @IsDefined()
   @ValidateNested()
   @Type(() => RegisterDataDto)
-  user?: RegisterDataDto;
-
-  @ApiPropertyOptional({ example: 'johndoe', maxLength: 100 })
-  @ValidateIf((o) => !o.user)
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  @IsNotEmpty()
-  @IsString()
-  @MaxLength(100)
-  username?: string;
-
-  @ApiPropertyOptional({ example: 'john@example.com', maxLength: 255 })
-  @ValidateIf((o) => !o.user)
-  @Transform(({ value }) =>
-    typeof value === 'string' ? value.trim().toLowerCase() : value,
-  )
-  @IsNotEmpty()
-  @IsEmail()
-  @MaxLength(255)
-  email?: string;
-
-  @ApiPropertyOptional({ example: 'password123', minLength: 6, maxLength: 72 })
-  @ValidateIf((o) => !o.user)
-  @IsNotEmpty()
-  @IsString()
-  @MinLength(6)
-  @MaxLength(72)
-  password?: string;
+  user: RegisterDataDto;
 }
