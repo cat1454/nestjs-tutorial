@@ -15,8 +15,12 @@ import { ArticlesModule } from './articles/articles.module.js';
 import { RedisModule } from './common/redis/redis.module.js';
 import configuration from './config/configuration.js';
 import { validateEnv } from './config/env.validation.js';
+import { AttachmentsModule } from './modules/attachments/attachments.module.js';
+import { AttachmentEntity } from './modules/attachments/entities/attachment.entity.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { HelloModule } from './modules/hello/hello.module.js';
+import { FollowEntity } from './modules/profiles/entities/follow.entity.js';
+import { ProfilesModule } from './modules/profiles/profiles.module.js';
 import { UserEntity } from './modules/users/entities/user.entity.js';
 import { UsersModule } from './modules/users/users.module.js';
 
@@ -62,7 +66,7 @@ const __dirname = path.dirname(__filename);
         username: configService.getOrThrow<string>('database.username'),
         password: configService.getOrThrow<string>('database.password'),
         database: configService.getOrThrow<string>('database.name'),
-        entities: [UserEntity],
+        entities: [UserEntity, FollowEntity, AttachmentEntity],
         synchronize: false,
         autoLoadEntities: true,
         logging: configService.get<string>('nodeEnv') === 'development',
@@ -70,8 +74,10 @@ const __dirname = path.dirname(__filename);
       inject: [ConfigService],
     }),
     RedisModule,
+    AttachmentsModule,
     UsersModule,
     AuthModule,
+    ProfilesModule,
     HelloModule,
     ArticlesModule,
   ],

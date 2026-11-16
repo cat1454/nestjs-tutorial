@@ -12,5 +12,11 @@
   "invalid_credentials": "Invalid email or password",
   "user_not_found": "User not found",
   "logout_failed": "Unable to process logout request",
-  "redis_unavailable": "Authentication cache service is temporarily unavailable"
+  "redis_unavailable": "Authentication cache service is temporarily unavailable",
+  "profile_not_found": "User profile not found",
+  "cannot_follow_self": "You cannot follow yourself",
+  "cannot_unfollow_self": "You cannot unfollow yourself",
+  "invalid_file": "Invalid uploaded file",
+  "invalid_file_type": "Unsupported file type. Only JPEG, PNG, WEBP, and GIF images are allowed",
+  "file_too_large": "Uploaded file exceeds the 5MB size limit"
 }
