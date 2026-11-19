@@ -18,5 +18,7 @@
   "cannot_unfollow_self": "Bạn không thể tự bỏ theo dõi chính mình",
   "invalid_file": "Tệp tải lên không hợp lệ",
   "invalid_file_type": "Định dạng tệp không được hỗ trợ. Chỉ chấp nhận ảnh JPEG, PNG, WEBP và GIF",
-  "file_too_large": "Dung lượng tệp vượt quá giới hạn 5MB"
+  "file_too_large": "Dung lượng tệp vượt quá giới hạn 5MB",
+  "article_not_found": "Không tìm thấy bài viết",
+  "article_forbidden": "Bạn không có quyền chỉnh sửa hoặc xóa bài viết này"
 }
