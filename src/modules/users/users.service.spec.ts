@@ -1,12 +1,10 @@
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { I18nService } from 'nestjs-i18n';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { RedisService } from '../../common/redis/redis.service.js';
+import { TokenService } from '../../common/auth/token.service.js';
 import { AttachmentTargetType } from '../attachments/attachments.constants.js';
 import { AttachmentsService } from '../attachments/attachments.service.js';
 import { PG_UNIQUE_VIOLATION_CODE } from '../auth/auth.constants.js';
@@ -16,10 +14,10 @@ import { UsersService } from './users.service.js';
 describe('UsersService', () => {
   let usersService: UsersService;
   let userRepository: Partial<Record<keyof Repository<UserEntity>, any>>;
+  let mockManager: { save: any };
+  let dataSource: Partial<Record<keyof DataSource, any>>;
   let attachmentsService: Partial<Record<keyof AttachmentsService, any>>;
-  let jwtService: Partial<Record<keyof JwtService, any>>;
-  let configService: Partial<Record<keyof ConfigService, any>>;
-  let redisService: Partial<Record<keyof RedisService, any>>;
+  let tokenService: Partial<Record<keyof TokenService, any>>;
   let i18nService: Partial<Record<keyof I18nService, any>>;
 
   const mockUser: UserEntity = {
@@ -28,7 +26,7 @@ describe('UsersService', () => {
     email: 'sunner@example.com',
     password: 'hashed-password',
     bio: null,
-    image: null,
+    image: '/public/uploads/avatars/old.png',
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -41,24 +39,35 @@ describe('UsersService', () => {
       exists: vi.fn(),
     };
 
+    mockManager = {
+      save: vi.fn((_entity, data) => Promise.resolve({ ...mockUser, ...data })),
+    };
+
+    dataSource = {
+      transaction: vi.fn(async (callback: (manager: any) => Promise<any>) =>
+        callback(mockManager),
+      ),
+    };
+
     attachmentsService = {
-      uploadAvatar: vi.fn(),
+      prepareAvatarUpload: vi.fn(),
+      replaceAttachmentInTransaction: vi.fn(),
+      deleteFileByAbsolutePath: vi.fn().mockResolvedValue(undefined),
+      deleteFilesByPublicUrls: vi.fn().mockResolvedValue(undefined),
     };
 
-    jwtService = {
-      signAsync: vi.fn().mockResolvedValue('new-jwt-token'),
-    };
-
-    configService = {
-      getOrThrow: vi.fn((key: string) => {
-        if (key === 'jwt.secret') return 'test-secret';
-        if (key === 'jwt.expiresIn') return '7d';
-        return '';
-      }),
-    };
-
-    redisService = {
-      addToBlacklist: vi.fn().mockResolvedValue(undefined),
+    tokenService = {
+      generateToken: vi.fn().mockResolvedValue('new-jwt-token'),
+      revokeAllUserTokens: vi.fn().mockResolvedValue(1700000000000),
+      buildAuthResponse: vi.fn((user: UserEntity, token: string) => ({
+        user: {
+          email: user.email,
+          token,
+          username: user.username,
+          bio: user.bio,
+          image: user.image,
+        },
+      })),
     };
 
     i18nService = {
@@ -69,10 +78,9 @@ describe('UsersService', () => {
       providers: [
         UsersService,
         { provide: getRepositoryToken(UserEntity), useValue: userRepository },
+        { provide: DataSource, useValue: dataSource },
         { provide: AttachmentsService, useValue: attachmentsService },
-        { provide: JwtService, useValue: jwtService },
-        { provide: ConfigService, useValue: configService },
-        { provide: RedisService, useValue: redisService },
+        { provide: TokenService, useValue: tokenService },
         { provide: I18nService, useValue: i18nService },
       ],
     }).compile();
@@ -80,7 +88,7 @@ describe('UsersService', () => {
     usersService = module.get<UsersService>(UsersService);
   });
 
-  it('should update bio and username successfully', async () => {
+  it('should update bio and username inside transaction successfully', async () => {
     userRepository.findOne!.mockResolvedValue({ ...mockUser });
     userRepository.exists!.mockResolvedValue(false);
 
@@ -104,38 +112,47 @@ describe('UsersService', () => {
     expect(result.user.token).toBe('new-jwt-token');
   });
 
-  it('should revoke old token in Redis and issue new token when password is changed', async () => {
+  it('should revoke ALL user sessions via TokenService and issue strictly newer token when password is changed', async () => {
     userRepository.findOne!.mockResolvedValue({ ...mockUser });
-    const futureExp = Math.floor(Date.now() / 1000) + 3600;
+    const currentUser = {
+      id: 'user-uuid-1',
+      email: 'sunner@example.com',
+      username: 'sunner',
+      jti: 'old-jti-123',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      token: 'old-token',
+    };
 
-    const result = await usersService.updateCurrentUser(
-      {
-        id: 'user-uuid-1',
-        email: 'sunner@example.com',
-        username: 'sunner',
-        jti: 'old-jti-123',
-        exp: futureExp,
-        token: 'old-token',
+    const result = await usersService.updateCurrentUser(currentUser, {
+      user: {
+        password: 'NewPassword@123',
       },
-      {
-        user: {
-          password: 'NewPassword@123',
-        },
-      },
+    });
+
+    expect(tokenService.revokeAllUserTokens).toHaveBeenCalledWith(
+      'user-uuid-1',
+      currentUser,
     );
-
-    expect(redisService.addToBlacklist).toHaveBeenCalledWith(
-      'old-jti-123',
-      expect.any(Number),
+    expect(tokenService.generateToken).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'user-uuid-1' }),
+      1700000000001,
     );
     expect(result.user.token).toBe('new-jwt-token');
   });
 
-  it('should upload avatar via AttachmentsService and update user image URL', async () => {
+  it('should save attachment & user in the same transaction and delete old avatar file only AFTER commit', async () => {
     userRepository.findOne!.mockResolvedValue({ ...mockUser });
-    attachmentsService.uploadAvatar!.mockResolvedValue({
-      id: 'att-uuid-1',
-      url: '/public/uploads/avatars/att-uuid-1.png',
+    const preparedFile = {
+      absoluteFilePath: '/disk/new.png',
+      publicUrl: '/public/uploads/avatars/new.png',
+      originalFileName: 'avatar.png',
+      verifiedMimeType: 'image/png',
+      fileSize: 1024,
+    };
+    attachmentsService.prepareAvatarUpload!.mockResolvedValue(preparedFile);
+    attachmentsService.replaceAttachmentInTransaction!.mockResolvedValue({
+      savedAttachment: { id: 'att-new', url: preparedFile.publicUrl },
+      oldFileUrls: ['/public/uploads/avatars/old.png'],
     });
 
     const fakeFile = {
@@ -156,12 +173,61 @@ describe('UsersService', () => {
       fakeFile,
     );
 
-    expect(attachmentsService.uploadAvatar).toHaveBeenCalledWith(
+    expect(
+      attachmentsService.replaceAttachmentInTransaction,
+    ).toHaveBeenCalledWith(
+      mockManager,
       'user-uuid-1',
-      fakeFile,
+      preparedFile,
       AttachmentTargetType.USER,
     );
-    expect(result.user.image).toBe('/public/uploads/avatars/att-uuid-1.png');
+    expect(attachmentsService.deleteFilesByPublicUrls).toHaveBeenCalledWith([
+      '/public/uploads/avatars/old.png',
+    ]);
+    expect(attachmentsService.deleteFileByAbsolutePath).not.toHaveBeenCalled();
+    expect(result.user.image).toBe('/public/uploads/avatars/new.png');
+  });
+
+  it('should clean up newly uploaded file and preserve old avatar file when transaction fails (23505)', async () => {
+    userRepository.findOne!.mockResolvedValue({ ...mockUser });
+    userRepository.exists!.mockResolvedValue(false);
+
+    const preparedFile = {
+      absoluteFilePath: '/disk/orphan-new.png',
+      publicUrl: '/public/uploads/avatars/orphan-new.png',
+      originalFileName: 'avatar.png',
+      verifiedMimeType: 'image/png',
+      fileSize: 1024,
+    };
+    attachmentsService.prepareAvatarUpload!.mockResolvedValue(preparedFile);
+    attachmentsService.replaceAttachmentInTransaction!.mockResolvedValue({
+      savedAttachment: { id: 'att-new', url: preparedFile.publicUrl },
+      oldFileUrls: ['/public/uploads/avatars/old.png'],
+    });
+    mockManager.save.mockRejectedValue({ code: PG_UNIQUE_VIOLATION_CODE });
+
+    await expect(
+      usersService.updateCurrentUser(
+        {
+          id: 'user-uuid-1',
+          email: 'sunner@example.com',
+          username: 'sunner',
+          token: 'existing-token',
+        },
+        { user: { username: 'concurrent_taken' } },
+        {
+          originalname: 'avatar.png',
+          mimetype: 'image/png',
+          size: 1024,
+          buffer: Buffer.from('fake-image'),
+        },
+      ),
+    ).rejects.toThrow(ConflictException);
+
+    expect(attachmentsService.deleteFileByAbsolutePath).toHaveBeenCalledWith(
+      '/disk/orphan-new.png',
+    );
+    expect(attachmentsService.deleteFilesByPublicUrls).not.toHaveBeenCalled();
   });
 
   it('should throw ConflictException if updated email is already taken', async () => {
@@ -185,28 +251,6 @@ describe('UsersService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('should throw ConflictException on PostgreSQL unique violation (23505)', async () => {
-    userRepository.findOne!.mockResolvedValue({ ...mockUser });
-    userRepository.exists!.mockResolvedValue(false);
-    userRepository.save!.mockRejectedValue({ code: PG_UNIQUE_VIOLATION_CODE });
-
-    await expect(
-      usersService.updateCurrentUser(
-        {
-          id: 'user-uuid-1',
-          email: 'sunner@example.com',
-          username: 'sunner',
-          token: 'existing-token',
-        },
-        {
-          user: {
-            username: 'concurrent_user',
-          },
-        },
-      ),
-    ).rejects.toThrow(ConflictException);
-  });
-
   it('should throw UnauthorizedException if current user no longer exists', async () => {
     userRepository.findOne!.mockResolvedValue(null);
 
@@ -223,4 +267,3 @@ describe('UsersService', () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 });
-

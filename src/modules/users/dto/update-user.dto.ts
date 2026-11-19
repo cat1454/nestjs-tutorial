@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUrl,
   MaxLength,
   MinLength,
   ValidateNested,
@@ -70,7 +71,7 @@ export class UpdateUserDataDto {
     nullable: true,
   })
   @IsOptional()
-  @IsString()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
   @MaxLength(IMAGE_URL_MAX_LENGTH)
   image?: string;
 }

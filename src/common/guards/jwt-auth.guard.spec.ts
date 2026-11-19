@@ -23,6 +23,7 @@ describe('JwtAuthGuard', () => {
     };
     redisService = {
       isBlacklisted: vi.fn(),
+      getUserRevokedBefore: vi.fn().mockResolvedValue(null),
     };
     configService = {
       getOrThrow: vi.fn().mockReturnValue('test-secret'),
@@ -87,6 +88,24 @@ describe('JwtAuthGuard', () => {
     expect(redisService.isBlacklisted).toHaveBeenCalledWith('revoked-jti');
   });
 
+  it('should throw UnauthorizedException if token was issued before user password change revocation timestamp', async () => {
+    const context = createMockContext('Bearer old-session-token');
+    jwtService.verifyAsync!.mockResolvedValue({
+      sub: 'user-id-123',
+      email: 'john@example.com',
+      username: 'john',
+      jti: 'old-session-jti',
+      iatMs: 1700000000000,
+      exp: 9999999999,
+    });
+    redisService.isBlacklisted!.mockResolvedValue(false);
+    redisService.getUserRevokedBefore!.mockResolvedValue(1700000005000);
+
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
   it('should propagate ServiceUnavailableException (503) when Redis fails', async () => {
     const context = createMockContext('Bearer valid-token');
     jwtService.verifyAsync!.mockResolvedValue({
@@ -105,14 +124,16 @@ describe('JwtAuthGuard', () => {
     );
   });
 
-  it('should allow access and attach user to request when token is valid and not blacklisted', async () => {
+  it('should allow access and attach user to request when token is valid and not revoked', async () => {
     const context = createMockContext('Bearer valid-token');
     redisService.isBlacklisted!.mockResolvedValue(false);
+    redisService.getUserRevokedBefore!.mockResolvedValue(1700000000000);
     jwtService.verifyAsync!.mockResolvedValue({
       sub: 'user-id-123',
       email: 'john@example.com',
       username: 'john',
       jti: 'jti-123',
+      iatMs: 1700000000001,
       exp: 1900000000,
     });
 

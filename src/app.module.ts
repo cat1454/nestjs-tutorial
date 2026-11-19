@@ -12,6 +12,7 @@ import {
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { ArticlesModule } from './articles/articles.module.js';
+import { TokenModule } from './common/auth/token.module.js';
 import { RedisModule } from './common/redis/redis.module.js';
 import configuration from './config/configuration.js';
 import { validateEnv } from './config/env.validation.js';
@@ -74,6 +75,7 @@ const __dirname = path.dirname(__filename);
       inject: [ConfigService],
     }),
     RedisModule,
+    TokenModule,
     AttachmentsModule,
     UsersModule,
     AuthModule,

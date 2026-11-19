@@ -3,18 +3,16 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
 import { I18nContext, I18nService } from 'nestjs-i18n';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { TokenService } from '../../common/auth/token.service.js';
 import { CurrentUserPayload } from '../../common/decorators/current-user.decorator.js';
-import { RedisService } from '../../common/redis/redis.service.js';
 import { AttachmentTargetType } from '../attachments/attachments.constants.js';
 import {
   AttachmentsService,
+  PreparedAvatarFile,
   UploadedFilePayload,
 } from '../attachments/attachments.service.js';
 import {
@@ -31,10 +29,9 @@ export class UsersService {
   constructor(
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
+    private readonly dataSource: DataSource,
     private readonly attachmentsService: AttachmentsService,
-    private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
-    private readonly redisService: RedisService,
+    private readonly tokenService: TokenService,
     private readonly i18n: I18nService,
   ) {}
 
@@ -91,20 +88,35 @@ export class UsersService {
 
     const isIdentityChanged = await this.applyIdentityChanges(user, payload);
     const isPasswordChanged = await this.applyPasswordChange(user, payload);
-    await this.applyProfileAndAvatarChanges(user, payload, file);
+    this.applyProfileChanges(user, payload);
 
-    const updatedUser = await this.saveUpdatedUser(user);
+    const preparedAvatar = file
+      ? await this.attachmentsService.prepareAvatarUpload(file)
+      : null;
 
+    const { updatedUser, oldAvatarUrls } =
+      await this.commitUserAndAvatarTransaction(user, preparedAvatar);
+
+    if (oldAvatarUrls.length > 0) {
+      await this.attachmentsService.deleteFilesByPublicUrls(oldAvatarUrls);
+    }
+
+    let minIssuedAtMs: number | undefined;
     if (isPasswordChanged) {
-      await this.revokeCurrentToken(currentUser);
+      const revokedAtMs = await this.tokenService.revokeAllUserTokens(
+        updatedUser.id,
+        currentUser,
+      );
+      minIssuedAtMs = revokedAtMs + 1;
     }
 
     const shouldReissueToken = isIdentityChanged || isPasswordChanged;
     const token = shouldReissueToken
-      ? await this.generateToken(updatedUser)
-      : (currentUser.token ?? (await this.generateToken(updatedUser)));
+      ? await this.tokenService.generateToken(updatedUser, minIssuedAtMs)
+      : (currentUser.token ??
+        (await this.tokenService.generateToken(updatedUser)));
 
-    return this.buildAuthResponse(updatedUser, token);
+    return this.tokenService.buildAuthResponse(updatedUser, token);
   }
 
   private async findCurrentUserOrThrow(userId: string): Promise<UserEntity> {
@@ -162,31 +174,48 @@ export class UsersService {
     return true;
   }
 
-  private async applyProfileAndAvatarChanges(
+  private applyProfileChanges(
     user: UserEntity,
     payload: UpdateUserDataDto,
-    file?: UploadedFilePayload,
-  ): Promise<void> {
+  ): void {
     if (payload.bio !== undefined) {
       user.bio = payload.bio;
     }
-
-    if (file) {
-      const attachment = await this.attachmentsService.uploadAvatar(
-        user.id,
-        file,
-        AttachmentTargetType.USER,
-      );
-      user.image = attachment.url;
-    } else if (payload.image !== undefined) {
+    if (payload.image !== undefined) {
       user.image = payload.image;
     }
   }
 
-  private async saveUpdatedUser(user: UserEntity): Promise<UserEntity> {
+  private async commitUserAndAvatarTransaction(
+    user: UserEntity,
+    preparedAvatar: PreparedAvatarFile | null,
+  ): Promise<{ updatedUser: UserEntity; oldAvatarUrls: string[] }> {
     try {
-      return await this.userRepository.save(user);
+      return await this.dataSource.transaction(async (manager) => {
+        let oldAvatarUrls: string[] = [];
+
+        if (preparedAvatar) {
+          const replacement =
+            await this.attachmentsService.replaceAttachmentInTransaction(
+              manager,
+              user.id,
+              preparedAvatar,
+              AttachmentTargetType.USER,
+            );
+          user.image = replacement.savedAttachment.url;
+          oldAvatarUrls = replacement.oldFileUrls;
+        }
+
+        const updatedUser = await manager.save(UserEntity, user);
+        return { updatedUser, oldAvatarUrls };
+      });
     } catch (error: unknown) {
+      if (preparedAvatar) {
+        await this.attachmentsService.deleteFileByAbsolutePath(
+          preparedAvatar.absoluteFilePath,
+        );
+      }
+
       const dbError = error as { code?: string };
       if (dbError?.code === PG_UNIQUE_VIOLATION_CODE) {
         const message = await this.i18n.t('errors.user_conflict', {
@@ -206,51 +235,6 @@ export class UsersService {
       password: source.password,
       bio: source.bio,
       image: source.image,
-    };
-  }
-
-  private async revokeCurrentToken(
-    currentUser: CurrentUserPayload,
-  ): Promise<void> {
-    if (!currentUser.exp) {
-      return;
-    }
-    const nowInSeconds = Math.floor(Date.now() / 1000);
-    const ttlSeconds = currentUser.exp - nowInSeconds;
-    const blacklistKey = currentUser.jti || currentUser.token;
-
-    if (ttlSeconds > 0 && blacklistKey) {
-      await this.redisService.addToBlacklist(blacklistKey, ttlSeconds);
-    }
-  }
-
-  private async generateToken(user: UserEntity): Promise<string> {
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      username: user.username,
-      jti: randomUUID(),
-    };
-
-    const secret = this.configService.getOrThrow<string>('jwt.secret');
-    const expiresIn =
-      this.configService.getOrThrow<JwtSignOptions['expiresIn']>('jwt.expiresIn');
-
-    return this.jwtService.signAsync(payload, {
-      secret,
-      expiresIn,
-    });
-  }
-
-  private buildAuthResponse(user: UserEntity, token: string): AuthResponseDto {
-    return {
-      user: {
-        email: user.email,
-        token,
-        username: user.username,
-        bio: user.bio,
-        image: user.image,
-      },
     };
   }
 }

@@ -1,8 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
 import { I18nService } from 'nestjs-i18n';
-import { Repository } from 'typeorm';
+import { EntityManager } from 'typeorm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AttachmentTargetType,
@@ -11,21 +10,16 @@ import {
 import { AttachmentsService } from './attachments.service.js';
 import { AttachmentEntity } from './entities/attachment.entity.js';
 
+const VALID_PNG_BUFFER = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+);
+
 describe('AttachmentsService', () => {
   let attachmentsService: AttachmentsService;
-  let attachmentRepository: Partial<
-    Record<keyof Repository<AttachmentEntity>, any>
-  >;
   let i18nService: Partial<Record<keyof I18nService, any>>;
 
   beforeEach(async () => {
-    attachmentRepository = {
-      find: vi.fn().mockResolvedValue([]),
-      create: vi.fn((data) => ({ id: 'att-uuid-123', ...data })),
-      save: vi.fn((entity) => Promise.resolve(entity)),
-      delete: vi.fn().mockResolvedValue({ affected: 1 }),
-    };
-
     i18nService = {
       t: vi.fn().mockImplementation(async (key: string) => key),
     };
@@ -33,10 +27,6 @@ describe('AttachmentsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AttachmentsService,
-        {
-          provide: getRepositoryToken(AttachmentEntity),
-          useValue: attachmentRepository,
-        },
         { provide: I18nService, useValue: i18nService },
       ],
     }).compile();
@@ -44,26 +34,38 @@ describe('AttachmentsService', () => {
     attachmentsService = module.get<AttachmentsService>(AttachmentsService);
   });
 
-  it('should save valid image file and create polymorphic AttachmentEntity record', async () => {
+  it('should verify PNG magic bytes and force .png extension even if original filename is .html', async () => {
     const file = {
-      originalname: 'my-avatar.png',
+      originalname: 'avatar.html',
       mimetype: 'image/png',
-      size: 256,
-      buffer: Buffer.from('png-binary-content'),
+      size: VALID_PNG_BUFFER.length,
+      buffer: VALID_PNG_BUFFER,
     };
 
-    const result = await attachmentsService.uploadAvatar(
-      'user-uuid-1',
-      file,
-      AttachmentTargetType.USER,
+    const prepared = await attachmentsService.prepareAvatarUpload(file);
+
+    expect(prepared.verifiedMimeType).toBe('image/png');
+    expect(prepared.publicUrl).toMatch(
+      /^\/public\/uploads\/avatars\/[0-9a-f-]+\.png$/,
     );
 
-    expect(result.targetType).toBe(AttachmentTargetType.USER);
-    expect(result.targetId).toBe('user-uuid-1');
-    expect(result.fileName).toBe('my-avatar.png');
-    expect(result.fileType).toBe('image/png');
-    expect(result.fileSize).toBe(256);
-    expect(result.url).toMatch(/^\/public\/uploads\/avatars\/[0-9a-f-]+\.png$/);
+    await attachmentsService.deleteFileByAbsolutePath(
+      prepared.absoluteFilePath,
+    );
+  });
+
+  it('should reject HTML file spoofed as image/png (Stored XSS protection)', async () => {
+    const htmlBuffer = Buffer.from('<script>alert(1)</script>');
+    const file = {
+      originalname: 'avatar.html',
+      mimetype: 'image/png',
+      size: htmlBuffer.length,
+      buffer: htmlBuffer,
+    };
+
+    await expect(
+      attachmentsService.prepareAvatarUpload(file),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('should throw BadRequestException for unsupported MIME types', async () => {
@@ -75,7 +77,7 @@ describe('AttachmentsService', () => {
     };
 
     await expect(
-      attachmentsService.uploadAvatar('user-uuid-1', file),
+      attachmentsService.prepareAvatarUpload(file),
     ).rejects.toThrow(BadRequestException);
   });
 
@@ -84,12 +86,41 @@ describe('AttachmentsService', () => {
       originalname: 'huge.png',
       mimetype: 'image/png',
       size: MAX_AVATAR_FILE_SIZE_BYTES + 1,
-      buffer: Buffer.from('tiny-buffer-representing-large-size'),
+      buffer: VALID_PNG_BUFFER,
     };
 
     await expect(
-      attachmentsService.uploadAvatar('user-uuid-1', file),
+      attachmentsService.prepareAvatarUpload(file),
     ).rejects.toThrow(BadRequestException);
   });
-});
 
+  it('should replace old attachment inside transaction manager and return old URLs without deleting files yet', async () => {
+    const mockManager = {
+      find: vi.fn().mockResolvedValue([
+        { id: 'old-att-id', url: '/public/uploads/avatars/old.png' },
+      ]),
+      delete: vi.fn().mockResolvedValue({ affected: 1 }),
+      create: vi.fn((_entity, data) => ({ id: 'new-att-id', ...data })),
+      save: vi.fn((_entity, data) => Promise.resolve(data)),
+    } as unknown as EntityManager;
+
+    const result = await attachmentsService.replaceAttachmentInTransaction(
+      mockManager,
+      'user-uuid-1',
+      {
+        absoluteFilePath: '/tmp/new.png',
+        publicUrl: '/public/uploads/avatars/new.png',
+        originalFileName: 'avatar.png',
+        verifiedMimeType: 'image/png',
+        fileSize: 128,
+      },
+      AttachmentTargetType.USER,
+    );
+
+    expect(mockManager.delete).toHaveBeenCalledWith(AttachmentEntity, [
+      'old-att-id',
+    ]);
+    expect(result.savedAttachment.url).toBe('/public/uploads/avatars/new.png');
+    expect(result.oldFileUrls).toEqual(['/public/uploads/avatars/old.png']);
+  });
+});

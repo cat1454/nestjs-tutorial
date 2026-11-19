@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter.js';
 import { TransformInterceptor } from '../src/common/interceptors/transform.interceptor.js';
+import { MAX_AVATAR_FILE_SIZE_BYTES } from '../src/modules/attachments/attachments.constants.js';
 
 process.env.NODE_ENV = 'test';
 
@@ -84,22 +85,35 @@ describe('Users, Profiles, Follow & Polymorphic Avatar Upload (e2e)', () => {
     await app.close();
   });
 
-  it('PUT /api/v1/user -> 200 OK (Update user bio and email)', async () => {
+  it('PUT /api/v1/user -> 200 OK (Update user bio and valid https image URL)', async () => {
     const res = await request(app.getHttpServer())
       .put('/api/v1/user')
       .set('Authorization', `Bearer ${aliceToken}`)
       .send({
         user: {
           bio: 'Senior NestJS Engineer at Sun*',
+          image: 'https://example.com/avatar.png',
         },
       })
       .expect(200);
 
     expect(res.body.data.user.bio).toBe('Senior NestJS Engineer at Sun*');
-    expect(res.body.data.user.username).toBe(alice.username);
+    expect(res.body.data.user.image).toBe('https://example.com/avatar.png');
   });
 
-  it('PUT /api/v1/user -> 200 OK (Upload avatar file, save polymorphic attachment with UUID, and serve from /public)', async () => {
+  it('PUT /api/v1/user -> 400 Bad Request (Reject javascript: XSS URL in image field)', async () => {
+    await request(app.getHttpServer())
+      .put('/api/v1/user')
+      .set('Authorization', `Bearer ${aliceToken}`)
+      .send({
+        user: {
+          image: 'javascript:alert(1)',
+        },
+      })
+      .expect(400);
+  });
+
+  it('PUT /api/v1/user -> 200 OK (Upload valid PNG avatar, save polymorphic attachment with UUID, and serve from /public)', async () => {
     const pngBuffer = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
       'base64',
@@ -138,25 +152,48 @@ describe('Users, Profiles, Follow & Polymorphic Avatar Upload (e2e)', () => {
     expect(staticRes.headers['content-type']).toContain('image/png');
   });
 
-  it('PUT /api/v1/user -> 400 Bad Request (Reject non-image avatar upload)', async () => {
-    const textBuffer = Buffer.from('not an image');
+  it('PUT /api/v1/user -> 400 Bad Request (Reject HTML payload spoofed with image/png Content-Type)', async () => {
+    const htmlBuffer = Buffer.from('<script>alert(1)</script>');
 
     await request(app.getHttpServer())
       .put('/api/v1/user')
       .set('Authorization', `Bearer ${aliceToken}`)
-      .attach('avatar', textBuffer, {
-        filename: 'malicious.txt',
-        contentType: 'text/plain',
+      .attach('avatar', htmlBuffer, {
+        filename: 'avatar.html',
+        contentType: 'image/png',
       })
       .expect(400);
   });
 
-  it('PUT /api/v1/user -> 200 OK (Change password revokes old token in Redis and issues new token)', async () => {
-    const oldToken = bobToken;
+  it('PUT /api/v1/user -> 413 Payload Too Large (Enforce 5MB limit in Multer FileInterceptor)', async () => {
+    const oversizedBuffer = Buffer.alloc(MAX_AVATAR_FILE_SIZE_BYTES + 1024, 0);
+
+    await request(app.getHttpServer())
+      .put('/api/v1/user')
+      .set('Authorization', `Bearer ${aliceToken}`)
+      .attach('avatar', oversizedBuffer, {
+        filename: 'oversized.png',
+        contentType: 'image/png',
+      })
+      .expect(413);
+  });
+
+  it('PUT /api/v1/user -> 200 OK (Change password revokes ALL sessions including other devices and issues new valid token)', async () => {
+    const device2LoginRes = await request(app.getHttpServer())
+      .post('/api/v1/users/login')
+      .send({
+        user: {
+          email: bob.email,
+          password: bob.password,
+        },
+      })
+      .expect(200);
+    const bobDevice2Token: string = device2LoginRes.body.data.user.token;
+    const bobDevice1Token = bobToken;
 
     const res = await request(app.getHttpServer())
       .put('/api/v1/user')
-      .set('Authorization', `Bearer ${oldToken}`)
+      .set('Authorization', `Bearer ${bobDevice1Token}`)
       .send({
         user: {
           password: 'NewSecretPassword@123',
@@ -166,12 +203,18 @@ describe('Users, Profiles, Follow & Polymorphic Avatar Upload (e2e)', () => {
 
     const newToken = res.body.data.user.token;
     expect(newToken).toBeDefined();
-    expect(newToken).not.toBe(oldToken);
+    expect(newToken).not.toBe(bobDevice1Token);
+    expect(newToken).not.toBe(bobDevice2Token);
     bobToken = newToken;
 
     await request(app.getHttpServer())
       .get('/api/v1/user')
-      .set('Authorization', `Bearer ${oldToken}`)
+      .set('Authorization', `Bearer ${bobDevice1Token}`)
+      .expect(401);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/user')
+      .set('Authorization', `Bearer ${bobDevice2Token}`)
       .expect(401);
 
     await request(app.getHttpServer())
@@ -236,4 +279,3 @@ describe('Users, Profiles, Follow & Polymorphic Avatar Upload (e2e)', () => {
       .expect(400);
   });
 });
-

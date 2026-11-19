@@ -21,6 +21,7 @@ import {
   CurrentUserPayload,
 } from '../../common/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { MAX_AVATAR_FILE_SIZE_BYTES } from '../attachments/attachments.constants.js';
 import { UploadedFilePayload } from '../attachments/attachments.service.js';
 import { AuthResponseDto } from '../auth/dto/auth-response.dto.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
@@ -34,13 +35,20 @@ export class UsersController {
 
   @Put()
   @UseGuards(JwtAuthGuard)
-  @UseInterceptors(FileInterceptor(AVATAR_FIELD_NAME))
+  @UseInterceptors(
+    FileInterceptor(AVATAR_FIELD_NAME, {
+      limits: {
+        fileSize: MAX_AVATAR_FILE_SIZE_BYTES,
+      },
+    }),
+  )
   @ApiBearerAuth('JWT-auth')
   @ApiConsumes('application/json', 'multipart/form-data')
   @ApiOperation({
-    summary: 'Cập nhật thông tin người dùng hiện tại & tải lên Avatar (Update User)',
+    summary:
+      'Cập nhật thông tin người dùng hiện tại & tải lên Avatar (Update User)',
     description:
-      'Cho phép cập nhật email, username, password, bio, image hoặc tải lên tệp avatar (lưu thông tin vào bảng đa hình attachments). Khi đổi mật khẩu sẽ tự động thu hồi token cũ.',
+      'Cho phép cập nhật email, username, password, bio, image hoặc tải lên tệp avatar (lưu thông tin vào bảng đa hình attachments). Khi đổi mật khẩu sẽ tự động thu hồi toàn bộ phiên đăng nhập cũ.',
   })
   @ApiOkResponse({
     type: AuthResponseDto,
@@ -58,4 +66,3 @@ export class UsersController {
     return this.usersService.updateCurrentUser(currentUser, dto, file);
   }
 }
-
