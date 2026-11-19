@@ -46,6 +46,9 @@ export class UpdateArticleDataDto {
     maxLength: ARTICLE_BODY_MAX_LENGTH,
   })
   @ValidateIf((_object: unknown, value: unknown) => value !== undefined)
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsNotEmpty()
   @IsString()
   @MaxLength(ARTICLE_BODY_MAX_LENGTH)

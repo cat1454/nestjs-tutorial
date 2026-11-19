@@ -47,6 +47,9 @@ export class CreateArticleDataDto {
     example: 'Full article body content goes here...',
     maxLength: ARTICLE_BODY_MAX_LENGTH,
   })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
   @IsNotEmpty()
   @IsString()
   @MaxLength(ARTICLE_BODY_MAX_LENGTH)

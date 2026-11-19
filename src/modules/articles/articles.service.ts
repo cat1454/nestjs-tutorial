@@ -427,10 +427,12 @@ export class ArticlesService {
   private async saveWithUniqueSlugRetry<T>(
     operation: () => Promise<T>,
   ): Promise<T> {
+    let lastError: unknown;
     for (let attempt = 1; attempt <= MAX_SLUG_GENERATION_RETRIES; attempt++) {
       try {
         return await operation();
       } catch (error: unknown) {
+        lastError = error;
         const dbError = error as { code?: string };
         const isRetryable =
           dbError?.code === PG_UNIQUE_VIOLATION_CODE &&
@@ -440,6 +442,6 @@ export class ArticlesService {
         }
       }
     }
-    return operation();
+    throw lastError;
   }
 }

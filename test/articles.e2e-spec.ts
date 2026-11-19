@@ -48,6 +48,7 @@ describe('Articles CRUD, Feed, Tags & Favorites (e2e)', () => {
     app.useGlobalFilters(new HttpExceptionFilter());
 
     await app.init();
+    app.getHttpServer().setMaxListeners(25);
     dataSource = app.get(DataSource);
 
     const dbName = dataSource.options.database as string;
@@ -498,6 +499,200 @@ describe('Articles CRUD, Feed, Tags & Favorites (e2e)', () => {
       await request(app.getHttpServer())
         .get(`/api/v1/articles/${createdSlug}`)
         .expect(404);
+    });
+  });
+
+  describe('Concurrency, Multi-Tag Pagination, Fuzzing & Security Probes', () => {
+    it('Concurrency: 10 parallel POST /api/v1/articles with identical title & brand-new tag should all return 201 with 10 unique slugs', async () => {
+      const results = await Promise.all(
+        Array.from({ length: 10 }, () =>
+          request(app.getHttpServer())
+            .post('/api/v1/articles')
+            .set('Authorization', `Bearer ${authorToken}`)
+            .send({
+              article: {
+                title: 'Parallel Concurrency Test Article',
+                description: 'Testing concurrent tag upsert and slug uniqueness',
+                body: 'Concurrent body content',
+                tagList: ['race-tag-a', 'race-tag-b', 'race-tag-c'],
+              },
+            }),
+        ),
+      );
+
+      for (const res of results) {
+        expect(res.status).toBe(201);
+        expect(res.body.data.article.tagList).toEqual([
+          'race-tag-a',
+          'race-tag-b',
+          'race-tag-c',
+        ]);
+      }
+
+      const slugs = new Set(results.map((r) => r.body.data.article.slug));
+      expect(slugs.size).toBe(10);
+    });
+
+    it('TypeORM Multi-Tag Pagination: filtering by shared tag with limit/offset returns exact page size without losing other tags or duplicating rows', async () => {
+      const page1 = await request(app.getHttpServer())
+        .get('/api/v1/articles?tag=race-tag-a&limit=3&offset=0')
+        .expect(200);
+      expect(page1.body.data.articlesCount).toBe(10);
+      expect(page1.body.data.articles).toHaveLength(3);
+      for (const article of page1.body.data.articles) {
+        expect(article.tagList).toEqual([
+          'race-tag-a',
+          'race-tag-b',
+          'race-tag-c',
+        ]);
+      }
+
+      const page2 = await request(app.getHttpServer())
+        .get('/api/v1/articles?tag=race-tag-a&limit=3&offset=3')
+        .expect(200);
+      expect(page2.body.data.articlesCount).toBe(10);
+      expect(page2.body.data.articles).toHaveLength(3);
+
+      const page1Slugs = new Set(
+        page1.body.data.articles.map((a: { slug: string }) => a.slug),
+      );
+      for (const article of page2.body.data.articles) {
+        expect(page1Slugs.has(article.slug)).toBe(false);
+      }
+    });
+
+    it('Concurrency: 10 parallel favorite & 10 parallel unfavorite requests from same user stay atomic and never 500', async () => {
+      const favResults = await Promise.all(
+        Array.from({ length: 10 }, () =>
+          request(app.getHttpServer())
+            .post(`/api/v1/articles/${secondSlug}/favorite`)
+            .set('Authorization', `Bearer ${authorToken}`),
+        ),
+      );
+
+      for (const res of favResults) {
+        expect(res.status).toBe(200);
+        expect(res.body.data.article.favorited).toBe(true);
+        expect(res.body.data.article.favoritesCount).toBe(1);
+      }
+
+      const unfavResults = await Promise.all(
+        Array.from({ length: 10 }, () =>
+          request(app.getHttpServer())
+            .delete(`/api/v1/articles/${secondSlug}/favorite`)
+            .set('Authorization', `Bearer ${authorToken}`),
+        ),
+      );
+
+      for (const res of unfavResults) {
+        expect(res.status).toBe(200);
+        expect(res.body.data.article.favorited).toBe(false);
+        expect(res.body.data.article.favoritesCount).toBe(0);
+      }
+    });
+
+    it('Fuzzing & Input Hardening: rejects whitespace-only body, non-string tagList items, unknown update fields, and handles empty update cleanly', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/articles')
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({
+          article: {
+            title: 'Valid title',
+            description: 'Valid description',
+            body: '     ',
+          },
+        })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/articles')
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({
+          article: {
+            title: 'Bad tagList elements',
+            description: 'Desc',
+            body: 'Body',
+            tagList: [123, null, { bad: true }],
+          },
+        })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .put(`/api/v1/articles/${secondSlug}`)
+        .set('Authorization', `Bearer ${readerToken}`)
+        .send({
+          article: {
+            body: '   ',
+          },
+        })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .put(`/api/v1/articles/${secondSlug}`)
+        .set('Authorization', `Bearer ${readerToken}`)
+        .send({
+          article: {
+            tagList: ['hacked'],
+          },
+        })
+        .expect(400);
+
+      const emptyUpdate = await request(app.getHttpServer())
+        .put(`/api/v1/articles/${secondSlug}`)
+        .set('Authorization', `Bearer ${readerToken}`)
+        .send({ article: {} })
+        .expect(200);
+      expect(emptyUpdate.body.data.article.slug).toBe(secondSlug);
+    });
+
+    it('Security: SQL injection strings in filters/slugs and invalid/revoked tokens on optional-auth routes', async () => {
+      const sqliTag = await request(app.getHttpServer())
+        .get(`/api/v1/articles?tag=${encodeURIComponent("' OR '1'='1")}`)
+        .expect(200);
+      expect(sqliTag.body.data.articlesCount).toBe(0);
+
+      const sqliAuthor = await request(app.getHttpServer())
+        .get(
+          `/api/v1/articles?author=${encodeURIComponent("admin'; DROP TABLE articles;--")}`,
+        )
+        .expect(200);
+      expect(sqliAuthor.body.data.articlesCount).toBe(0);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/articles/${encodeURIComponent("' OR 1=1--")}`)
+        .expect(404);
+
+      const emptyQueryParams = await request(app.getHttpServer())
+        .get('/api/v1/articles?tag=&author=&favorited=')
+        .expect(200);
+      expect(emptyQueryParams.body.data.articlesCount).toBeGreaterThanOrEqual(1);
+
+      await request(app.getHttpServer())
+        .get('/api/v1/articles')
+        .set('Authorization', 'Bearer tampered.invalid.jwt')
+        .expect(401);
+
+      const tempUserRes = await request(app.getHttpServer())
+        .post('/api/v1/users')
+        .send({
+          user: {
+            username: `temp_${uniqueSuffix}`,
+            email: `temp_${uniqueSuffix}@example.com`,
+            password: 'Password@123',
+          },
+        })
+        .expect(201);
+      const tempToken: string = tempUserRes.body.data.user.token;
+
+      await request(app.getHttpServer())
+        .post('/api/v1/users/logout')
+        .set('Authorization', `Bearer ${tempToken}`)
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get(`/api/v1/articles/${secondSlug}`)
+        .set('Authorization', `Bearer ${tempToken}`)
+        .expect(401);
     });
   });
 });
