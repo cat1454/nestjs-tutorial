@@ -3,9 +3,9 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsDefined,
   IsNotEmpty,
-  IsOptional,
   IsString,
   MaxLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -19,7 +19,7 @@ export class UpdateArticleDataDto {
     example: 'Updated NestJS Article Title',
     maxLength: ARTICLE_TITLE_MAX_LENGTH,
   })
-  @IsOptional()
+  @ValidateIf((_object: unknown, value: unknown) => value !== undefined)
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -32,7 +32,7 @@ export class UpdateArticleDataDto {
     example: 'Updated article description',
     maxLength: ARTICLE_DESCRIPTION_MAX_LENGTH,
   })
-  @IsOptional()
+  @ValidateIf((_object: unknown, value: unknown) => value !== undefined)
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
   )
@@ -45,7 +45,7 @@ export class UpdateArticleDataDto {
     example: 'Updated article body content...',
     maxLength: ARTICLE_BODY_MAX_LENGTH,
   })
-  @IsOptional()
+  @ValidateIf((_object: unknown, value: unknown) => value !== undefined)
   @IsNotEmpty()
   @IsString()
   @MaxLength(ARTICLE_BODY_MAX_LENGTH)

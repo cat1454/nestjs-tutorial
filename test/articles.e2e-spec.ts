@@ -16,6 +16,7 @@ describe('Articles CRUD, Feed, Tags & Favorites (e2e)', () => {
   let authorToken: string;
   let readerToken: string;
   let createdSlug: string;
+  let secondSlug: string;
 
   const uniqueSuffix = Date.now();
   const author = {
@@ -87,188 +88,416 @@ describe('Articles CRUD, Feed, Tags & Favorites (e2e)', () => {
     await app.close();
   });
 
-  it('POST /api/v1/articles -> 401 Unauthorized (Require authentication)', async () => {
-    await request(app.getHttpServer())
-      .post('/api/v1/articles')
-      .send({
-        article: {
-          title: 'Unauthenticated Article',
-          description: 'Desc',
-          body: 'Body',
-        },
-      })
-      .expect(401);
+  describe('Create Article & Validation', () => {
+    it('POST /api/v1/articles -> 401 Unauthorized (Missing auth token)', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/articles')
+        .send({
+          article: {
+            title: 'Unauthenticated Article',
+            description: 'Desc',
+            body: 'Body',
+          },
+        })
+        .expect(401);
+    });
+
+    it('POST /api/v1/articles -> 400 Bad Request (Missing required fields & non-whitelisted properties)', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/articles')
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({ article: { title: 'Only title' } })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/articles')
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({
+          article: {
+            title: 'a'.repeat(256),
+            description: 'Desc',
+            body: 'Body',
+          },
+        })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/articles')
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({
+          article: {
+            title: 'Too many tags',
+            description: 'Desc',
+            body: 'Body',
+            tagList: Array.from({ length: 21 }, (_, idx) => `tag${idx}`),
+          },
+        })
+        .expect(400);
+    });
+
+    it('POST /api/v1/articles -> 201 Created (Vietnamese title, normalized & deduplicated tags)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/articles')
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({
+          article: {
+            title: 'Hướng dẫn xây dựng NestJS Conduit',
+            description: 'Tutorial chuẩn Sun*',
+            body: 'Nội dung chi tiết về NestJS và TypeORM.',
+            tagList: ['  NestJS ', 'TypeORM', 'nestjs', ''],
+          },
+        })
+        .expect(201);
+
+      const article = res.body.data.article;
+      expect(article.slug).toMatch(
+        /^huong-dan-xay-dung-nestjs-conduit-[0-9a-f]{8}$/,
+      );
+      expect(article.title).toBe('Hướng dẫn xây dựng NestJS Conduit');
+      expect(article.tagList).toEqual(['nestjs', 'typeorm']);
+      expect(article.favorited).toBe(false);
+      expect(article.favoritesCount).toBe(0);
+      expect(article.author.username).toBe(author.username);
+      createdSlug = article.slug;
+    });
+
+    it('POST /api/v1/articles -> 201 Created (Duplicate title generates distinct unique slug)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/articles')
+        .set('Authorization', `Bearer ${readerToken}`)
+        .send({
+          article: {
+            title: 'Hướng dẫn xây dựng NestJS Conduit',
+            description: 'Another author same title',
+            body: 'Different body content',
+            tagList: ['nestjs', 'redis'],
+          },
+        })
+        .expect(201);
+
+      expect(res.body.data.article.slug).not.toBe(createdSlug);
+      secondSlug = res.body.data.article.slug;
+    });
+
+    it('POST /api/v1/articles -> 201 Created (Symbol-only title falls back safely to article-slug)', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/v1/articles')
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({
+          article: {
+            title: '!!! ???',
+            description: 'Edge case title',
+            body: 'Edge case body',
+          },
+        })
+        .expect(201);
+
+      expect(res.body.data.article.slug).toMatch(/^article-[0-9a-f]{8}$/);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/articles/${res.body.data.article.slug}`)
+        .set('Authorization', `Bearer ${authorToken}`)
+        .expect(200);
+    });
   });
 
-  it('POST /api/v1/articles -> 201 Created (Create article with tags and auto-generated slug)', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/api/v1/articles')
-      .set('Authorization', `Bearer ${authorToken}`)
-      .send({
-        article: {
-          title: 'Hướng dẫn xây dựng NestJS Conduit',
-          description: 'Tutorial chuẩn Sun*',
-          body: 'Nội dung chi tiết về NestJS và TypeORM.',
-          tagList: ['NestJS', 'TypeORM', 'nestjs'],
-        },
-      })
-      .expect(201);
+  describe('Get, List, Filter, Pagination & i18n', () => {
+    it('GET /api/v1/articles/:slug -> 200 OK & 404 Not Found with en/vi i18n messages', async () => {
+      const okRes = await request(app.getHttpServer())
+        .get(`/api/v1/articles/${createdSlug}`)
+        .expect(200);
+      expect(okRes.body.data.article.slug).toBe(createdSlug);
 
-    const article = res.body.data.article;
-    expect(article.slug).toMatch(
-      /^huong-dan-xay-dung-nestjs-conduit-[0-9a-f]{8}$/,
-    );
-    expect(article.title).toBe('Hướng dẫn xây dựng NestJS Conduit');
-    expect(article.tagList).toEqual(['nestjs', 'typeorm']);
-    expect(article.favorited).toBe(false);
-    expect(article.favoritesCount).toBe(0);
-    expect(article.author.username).toBe(author.username);
-    createdSlug = article.slug;
+      const notFoundEn = await request(app.getHttpServer())
+        .get('/api/v1/articles/non-existent-slug-9999')
+        .set('Accept-Language', 'en')
+        .expect(404);
+      expect(notFoundEn.body.message).toBe('Article not found');
+
+      const notFoundVi = await request(app.getHttpServer())
+        .get('/api/v1/articles/non-existent-slug-9999')
+        .set('Accept-Language', 'vi')
+        .expect(404);
+      expect(notFoundVi.body.message).toBe('Không tìm thấy bài viết');
+    });
+
+    it('GET /api/v1/articles -> 400 Bad Request on invalid limit/offset bounds', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/articles?limit=0')
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .get('/api/v1/articles?limit=101')
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .get('/api/v1/articles?offset=-1')
+        .expect(400);
+    });
+
+    it('GET /api/v1/articles -> 200 OK (Ordering newest-first, pagination, and full tagList preserved when filtering by tag)', async () => {
+      const page1 = await request(app.getHttpServer())
+        .get('/api/v1/articles?limit=1&offset=0')
+        .expect(200);
+      expect(page1.body.data.articlesCount).toBe(2);
+      expect(page1.body.data.articles).toHaveLength(1);
+      expect(page1.body.data.articles[0].slug).toBe(secondSlug);
+
+      const page2 = await request(app.getHttpServer())
+        .get('/api/v1/articles?limit=1&offset=1')
+        .expect(200);
+      expect(page2.body.data.articlesCount).toBe(2);
+      expect(page2.body.data.articles).toHaveLength(1);
+      expect(page2.body.data.articles[0].slug).toBe(createdSlug);
+
+      const pastEnd = await request(app.getHttpServer())
+        .get('/api/v1/articles?limit=10&offset=50')
+        .expect(200);
+      expect(pastEnd.body.data.articlesCount).toBe(2);
+      expect(pastEnd.body.data.articles).toEqual([]);
+
+      const byTag = await request(app.getHttpServer())
+        .get('/api/v1/articles?tag=typeorm')
+        .expect(200);
+      expect(byTag.body.data.articlesCount).toBe(1);
+      expect(byTag.body.data.articles[0].tagList).toEqual([
+        'nestjs',
+        'typeorm',
+      ]);
+
+      const byAuthor = await request(app.getHttpServer())
+        .get(`/api/v1/articles?author=${author.username}`)
+        .expect(200);
+      expect(byAuthor.body.data.articlesCount).toBe(1);
+      expect(byAuthor.body.data.articles[0].slug).toBe(createdSlug);
+    });
   });
 
-  it('GET /api/v1/articles/:slug -> 200 OK (Get article detail)', async () => {
-    const res = await request(app.getHttpServer())
-      .get(`/api/v1/articles/${createdSlug}`)
-      .expect(200);
+  describe('Favorite / Unfavorite & Combined Filters', () => {
+    it('POST/DELETE /api/v1/articles/:slug/favorite -> 401 without token & 404 for unknown slug', async () => {
+      await request(app.getHttpServer())
+        .post(`/api/v1/articles/${createdSlug}/favorite`)
+        .expect(401);
 
-    expect(res.body.data.article.slug).toBe(createdSlug);
-    expect(res.body.data.article.tagList).toEqual(['nestjs', 'typeorm']);
+      await request(app.getHttpServer())
+        .post('/api/v1/articles/unknown-slug-123/favorite')
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(404);
+
+      await request(app.getHttpServer())
+        .delete('/api/v1/articles/unknown-slug-123/favorite')
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(404);
+    });
+
+    it('POST /api/v1/articles/:slug/favorite -> idempotent for same user, increments across multiple users, and works with combined filters', async () => {
+      const fav1 = await request(app.getHttpServer())
+        .post(`/api/v1/articles/${createdSlug}/favorite`)
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(200);
+      expect(fav1.body.data.article.favorited).toBe(true);
+      expect(fav1.body.data.article.favoritesCount).toBe(1);
+
+      const favRepeat = await request(app.getHttpServer())
+        .post(`/api/v1/articles/${createdSlug}/favorite`)
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(200);
+      expect(favRepeat.body.data.article.favoritesCount).toBe(1);
+
+      const favByAuthor = await request(app.getHttpServer())
+        .post(`/api/v1/articles/${createdSlug}/favorite`)
+        .set('Authorization', `Bearer ${authorToken}`)
+        .expect(200);
+      expect(favByAuthor.body.data.article.favoritesCount).toBe(2);
+
+      const combinedFilter = await request(app.getHttpServer())
+        .get(
+          `/api/v1/articles?tag=nestjs&author=${author.username}&favorited=${reader.username}`,
+        )
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(200);
+      expect(combinedFilter.body.data.articlesCount).toBe(1);
+      expect(combinedFilter.body.data.articles[0].favorited).toBe(true);
+      expect(combinedFilter.body.data.articles[0].favoritesCount).toBe(2);
+    });
+
+    it('DELETE /api/v1/articles/:slug/favorite -> decrements count and is idempotent when already unfavorited', async () => {
+      const unfav1 = await request(app.getHttpServer())
+        .delete(`/api/v1/articles/${createdSlug}/favorite`)
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(200);
+      expect(unfav1.body.data.article.favorited).toBe(false);
+      expect(unfav1.body.data.article.favoritesCount).toBe(1);
+
+      const unfavRepeat = await request(app.getHttpServer())
+        .delete(`/api/v1/articles/${createdSlug}/favorite`)
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(200);
+      expect(unfavRepeat.body.data.article.favoritesCount).toBe(1);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/articles/${createdSlug}/favorite`)
+        .set('Authorization', `Bearer ${authorToken}`)
+        .expect(200);
+    });
   });
 
-  it('GET /api/v1/articles/:slug -> 404 Not Found (Non-existent slug)', async () => {
-    await request(app.getHttpServer())
-      .get('/api/v1/articles/non-existent-slug-9999')
-      .expect(404);
+  describe('Feed Articles & Tags', () => {
+    it('GET /api/v1/articles/feed -> 401 without token & 400 on invalid pagination', async () => {
+      await request(app.getHttpServer())
+        .get('/api/v1/articles/feed')
+        .expect(401);
+
+      await request(app.getHttpServer())
+        .get('/api/v1/articles/feed?limit=0')
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(400);
+    });
+
+    it('GET /api/v1/articles/feed -> updates dynamically after follow and unfollow', async () => {
+      const beforeFollow = await request(app.getHttpServer())
+        .get('/api/v1/articles/feed')
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(200);
+      expect(beforeFollow.body.data.articlesCount).toBe(0);
+
+      await request(app.getHttpServer())
+        .post(`/api/v1/profiles/${author.username}/follow`)
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(200);
+
+      const afterFollow = await request(app.getHttpServer())
+        .get('/api/v1/articles/feed?limit=10&offset=0')
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(200);
+      expect(afterFollow.body.data.articlesCount).toBe(1);
+      expect(afterFollow.body.data.articles[0].slug).toBe(createdSlug);
+      expect(afterFollow.body.data.articles[0].author.following).toBe(true);
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/profiles/${author.username}/follow`)
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(200);
+
+      const afterUnfollow = await request(app.getHttpServer())
+        .get('/api/v1/articles/feed')
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(200);
+      expect(afterUnfollow.body.data.articlesCount).toBe(0);
+    });
+
+    it('GET /api/v1/tags -> 200 OK returns all distinct sorted tags', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/api/v1/tags')
+        .expect(200);
+
+      expect(res.body.data.tags).toEqual(['nestjs', 'redis', 'typeorm']);
+    });
   });
 
-  it('GET /api/v1/articles -> 200 OK (Filter by tag, author, and pagination)', async () => {
-    const byTagRes = await request(app.getHttpServer())
-      .get('/api/v1/articles?tag=nestjs&limit=10&offset=0')
-      .expect(200);
+  describe('Update & Delete Article Authorization & Edge Cases', () => {
+    it('PUT /api/v1/articles/:slug -> 400 Bad Request when explicit null or blank whitespace is sent', async () => {
+      await request(app.getHttpServer())
+        .put(`/api/v1/articles/${createdSlug}`)
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({ article: { title: null } })
+        .expect(400);
 
-    expect(byTagRes.body.data.articlesCount).toBe(1);
-    expect(byTagRes.body.data.articles[0].slug).toBe(createdSlug);
-    expect(byTagRes.body.data.articles[0].tagList).toEqual([
-      'nestjs',
-      'typeorm',
-    ]);
+      await request(app.getHttpServer())
+        .put(`/api/v1/articles/${createdSlug}`)
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({ article: { description: null } })
+        .expect(400);
 
-    const byAuthorRes = await request(app.getHttpServer())
-      .get(`/api/v1/articles?author=${author.username}`)
-      .expect(200);
-    expect(byAuthorRes.body.data.articlesCount).toBe(1);
+      await request(app.getHttpServer())
+        .put(`/api/v1/articles/${createdSlug}`)
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({ article: { body: null } })
+        .expect(400);
 
-    const emptyRes = await request(app.getHttpServer())
-      .get('/api/v1/articles?tag=nonexistenttag')
-      .expect(200);
-    expect(emptyRes.body.data.articlesCount).toBe(0);
-  });
+      await request(app.getHttpServer())
+        .put(`/api/v1/articles/${createdSlug}`)
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({ article: { title: '   ' } })
+        .expect(400);
+    });
 
-  it('POST /api/v1/articles/:slug/favorite -> 200 OK & filter by favorited', async () => {
-    const favRes = await request(app.getHttpServer())
-      .post(`/api/v1/articles/${createdSlug}/favorite`)
-      .set('Authorization', `Bearer ${readerToken}`)
-      .expect(200);
+    it('PUT /api/v1/articles/:slug -> 401 without token, 404 unknown slug, 403 non-author', async () => {
+      await request(app.getHttpServer())
+        .put(`/api/v1/articles/${createdSlug}`)
+        .send({ article: { title: 'No auth' } })
+        .expect(401);
 
-    expect(favRes.body.data.article.favorited).toBe(true);
-    expect(favRes.body.data.article.favoritesCount).toBe(1);
+      await request(app.getHttpServer())
+        .put('/api/v1/articles/non-existent-slug')
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({ article: { title: 'Missing' } })
+        .expect(404);
 
-    const filterFavRes = await request(app.getHttpServer())
-      .get(`/api/v1/articles?favorited=${reader.username}`)
-      .set('Authorization', `Bearer ${readerToken}`)
-      .expect(200);
+      await request(app.getHttpServer())
+        .put(`/api/v1/articles/${createdSlug}`)
+        .set('Authorization', `Bearer ${readerToken}`)
+        .send({ article: { title: 'Unauthorized Edit' } })
+        .expect(403);
+    });
 
-    expect(filterFavRes.body.data.articlesCount).toBe(1);
-    expect(filterFavRes.body.data.articles[0].favorited).toBe(true);
-  });
+    it('PUT /api/v1/articles/:slug -> preserves slug when title unchanged, regenerates slug when title changed', async () => {
+      const keepSlugRes = await request(app.getHttpServer())
+        .put(`/api/v1/articles/${createdSlug}`)
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({ article: { description: 'Only description changed' } })
+        .expect(200);
+      expect(keepSlugRes.body.data.article.slug).toBe(createdSlug);
+      expect(keepSlugRes.body.data.article.description).toBe(
+        'Only description changed',
+      );
 
-  it('DELETE /api/v1/articles/:slug/favorite -> 200 OK (Unfavorite article)', async () => {
-    const res = await request(app.getHttpServer())
-      .delete(`/api/v1/articles/${createdSlug}/favorite`)
-      .set('Authorization', `Bearer ${readerToken}`)
-      .expect(200);
+      const newSlugRes = await request(app.getHttpServer())
+        .put(`/api/v1/articles/${createdSlug}`)
+        .set('Authorization', `Bearer ${authorToken}`)
+        .send({
+          article: {
+            title: 'Updated NestJS Conduit Guide',
+            description: 'Updated description',
+          },
+        })
+        .expect(200);
 
-    expect(res.body.data.article.favorited).toBe(false);
-    expect(res.body.data.article.favoritesCount).toBe(0);
-  });
+      expect(newSlugRes.body.data.article.title).toBe(
+        'Updated NestJS Conduit Guide',
+      );
+      expect(newSlugRes.body.data.article.slug).toMatch(
+        /^updated-nestjs-conduit-guide-[0-9a-f]{8}$/,
+      );
+      expect(newSlugRes.body.data.article.slug).not.toBe(createdSlug);
+      createdSlug = newSlugRes.body.data.article.slug;
+    });
 
-  it('GET /api/v1/articles/feed -> 200 OK (Returns articles from followed authors only)', async () => {
-    const emptyFeed = await request(app.getHttpServer())
-      .get('/api/v1/articles/feed')
-      .set('Authorization', `Bearer ${readerToken}`)
-      .expect(200);
-    expect(emptyFeed.body.data.articlesCount).toBe(0);
+    it('DELETE /api/v1/articles/:slug -> 401 without token, 404 unknown slug, 403 non-author, 200 author with i18n', async () => {
+      await request(app.getHttpServer())
+        .delete(`/api/v1/articles/${createdSlug}`)
+        .expect(401);
 
-    await request(app.getHttpServer())
-      .post(`/api/v1/profiles/${author.username}/follow`)
-      .set('Authorization', `Bearer ${readerToken}`)
-      .expect(200);
+      await request(app.getHttpServer())
+        .delete('/api/v1/articles/non-existent-slug')
+        .set('Authorization', `Bearer ${authorToken}`)
+        .expect(404);
 
-    const feedRes = await request(app.getHttpServer())
-      .get('/api/v1/articles/feed?limit=10&offset=0')
-      .set('Authorization', `Bearer ${readerToken}`)
-      .expect(200);
+      await request(app.getHttpServer())
+        .delete(`/api/v1/articles/${createdSlug}`)
+        .set('Authorization', `Bearer ${readerToken}`)
+        .expect(403);
 
-    expect(feedRes.body.data.articlesCount).toBe(1);
-    expect(feedRes.body.data.articles[0].slug).toBe(createdSlug);
-    expect(feedRes.body.data.articles[0].author.following).toBe(true);
-  });
+      const deleteRes = await request(app.getHttpServer())
+        .delete(`/api/v1/articles/${createdSlug}`)
+        .set('Authorization', `Bearer ${authorToken}`)
+        .set('Accept-Language', 'vi')
+        .expect(200);
+      expect(deleteRes.body.message).toBe('Xóa bài viết thành công');
 
-  it('GET /api/v1/tags -> 200 OK (Returns distinct sorted tags)', async () => {
-    const res = await request(app.getHttpServer())
-      .get('/api/v1/tags')
-      .expect(200);
-
-    expect(res.body.data.tags).toEqual(['nestjs', 'typeorm']);
-  });
-
-  it('PUT /api/v1/articles/:slug -> 403 Forbidden (Non-author cannot update)', async () => {
-    await request(app.getHttpServer())
-      .put(`/api/v1/articles/${createdSlug}`)
-      .set('Authorization', `Bearer ${readerToken}`)
-      .send({
-        article: {
-          title: 'Unauthorized Edit',
-        },
-      })
-      .expect(403);
-  });
-
-  it('PUT /api/v1/articles/:slug -> 200 OK (Author updates title and regenerates slug)', async () => {
-    const res = await request(app.getHttpServer())
-      .put(`/api/v1/articles/${createdSlug}`)
-      .set('Authorization', `Bearer ${authorToken}`)
-      .send({
-        article: {
-          title: 'Updated NestJS Conduit Guide',
-          description: 'Updated description',
-        },
-      })
-      .expect(200);
-
-    expect(res.body.data.article.title).toBe('Updated NestJS Conduit Guide');
-    expect(res.body.data.article.slug).toMatch(
-      /^updated-nestjs-conduit-guide-[0-9a-f]{8}$/,
-    );
-    expect(res.body.data.article.description).toBe('Updated description');
-    createdSlug = res.body.data.article.slug;
-  });
-
-  it('DELETE /api/v1/articles/:slug -> 403 Forbidden (Non-author cannot delete)', async () => {
-    await request(app.getHttpServer())
-      .delete(`/api/v1/articles/${createdSlug}`)
-      .set('Authorization', `Bearer ${readerToken}`)
-      .expect(403);
-  });
-
-  it('DELETE /api/v1/articles/:slug -> 200 OK (Author deletes article)', async () => {
-    await request(app.getHttpServer())
-      .delete(`/api/v1/articles/${createdSlug}`)
-      .set('Authorization', `Bearer ${authorToken}`)
-      .expect(200);
-
-    await request(app.getHttpServer())
-      .get(`/api/v1/articles/${createdSlug}`)
-      .expect(404);
+      await request(app.getHttpServer())
+        .get(`/api/v1/articles/${createdSlug}`)
+        .expect(404);
+    });
   });
 });

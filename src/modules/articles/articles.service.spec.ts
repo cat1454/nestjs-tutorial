@@ -28,6 +28,9 @@ describe('ArticlesService', () => {
   let usersService: Partial<Record<keyof UsersService, any>>;
   let dataSource: Partial<Record<keyof DataSource, any>>;
   let i18nService: Partial<Record<keyof I18nService, any>>;
+  let articleListQueryBuilder: Record<string, any>;
+  let favoriteCountQueryBuilder: Record<string, any>;
+  let mockManager: Record<string, any>;
 
   const mockAuthor: UserEntity = {
     id: 'author-uuid-1',
@@ -57,7 +60,18 @@ describe('ArticlesService', () => {
   };
 
   beforeEach(async () => {
-    const favoriteQueryBuilder = {
+    articleListQueryBuilder = {
+      leftJoinAndSelect: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      andWhere: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      addOrderBy: vi.fn().mockReturnThis(),
+      skip: vi.fn().mockReturnThis(),
+      take: vi.fn().mockReturnThis(),
+      getManyAndCount: vi.fn().mockResolvedValue([[], 0]),
+    };
+
+    favoriteCountQueryBuilder = {
       select: vi.fn().mockReturnThis(),
       addSelect: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
@@ -69,6 +83,7 @@ describe('ArticlesService', () => {
       findOne: vi.fn(),
       save: vi.fn((entity) => Promise.resolve(entity)),
       delete: vi.fn().mockResolvedValue({ affected: 1 }),
+      createQueryBuilder: vi.fn().mockReturnValue(articleListQueryBuilder),
     };
 
     tagRepository = {
@@ -81,7 +96,7 @@ describe('ArticlesService', () => {
       save: vi.fn((data) => Promise.resolve(data)),
       delete: vi.fn().mockResolvedValue({ affected: 1 }),
       find: vi.fn().mockResolvedValue([]),
-      createQueryBuilder: vi.fn().mockReturnValue(favoriteQueryBuilder),
+      createQueryBuilder: vi.fn().mockReturnValue(favoriteCountQueryBuilder),
     };
 
     followRepository = {
@@ -100,7 +115,7 @@ describe('ArticlesService', () => {
       execute: vi.fn().mockResolvedValue(undefined),
     };
 
-    const mockManager = {
+    mockManager = {
       createQueryBuilder: vi.fn().mockReturnValue(insertBuilder),
       find: vi.fn().mockResolvedValue(mockArticle.tags),
       create: vi.fn((_entity, data) => ({
@@ -147,6 +162,85 @@ describe('ArticlesService', () => {
     articlesService = module.get<ArticlesService>(ArticlesService);
   });
 
+  describe('listArticles', () => {
+    it('should return empty list without querying favorites/follows when no articles match', async () => {
+      articleListQueryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
+
+      const res = await articlesService.listArticles({
+        limit: 20,
+        offset: 0,
+      });
+
+      expect(res).toEqual({ articles: [], articlesCount: 0 });
+      expect(favoriteRepository.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('should apply tag, author, and favorited filters and batch-enrich counts and flags', async () => {
+      articleListQueryBuilder.getManyAndCount.mockResolvedValue([
+        [mockArticle],
+        1,
+      ]);
+      favoriteCountQueryBuilder.getRawMany.mockResolvedValue([
+        { articleId: mockArticle.id, count: '3' },
+      ]);
+      favoriteRepository.find!.mockResolvedValue([
+        { articleId: mockArticle.id },
+      ]);
+      followRepository.find!.mockResolvedValue([
+        { followingId: mockAuthor.id },
+      ]);
+
+      const res = await articlesService.listArticles(
+        {
+          tag: 'nestjs',
+          author: 'author1',
+          favorited: 'reader1',
+          limit: 10,
+          offset: 5,
+        },
+        'reader-uuid-1',
+      );
+
+      expect(articleListQueryBuilder.innerJoin).toHaveBeenCalledTimes(3);
+      expect(articleListQueryBuilder.andWhere).toHaveBeenCalledWith(
+        'author.username = :author',
+        { author: 'author1' },
+      );
+      expect(articleListQueryBuilder.skip).toHaveBeenCalledWith(5);
+      expect(articleListQueryBuilder.take).toHaveBeenCalledWith(10);
+      expect(res.articlesCount).toBe(1);
+      expect(res.articles[0].favoritesCount).toBe(3);
+      expect(res.articles[0].favorited).toBe(true);
+      expect(res.articles[0].author.following).toBe(true);
+    });
+  });
+
+  describe('getFeed', () => {
+    it('should return articles from followed authors with pagination', async () => {
+      articleListQueryBuilder.getManyAndCount.mockResolvedValue([
+        [mockArticle],
+        1,
+      ]);
+      followRepository.find!.mockResolvedValue([
+        { followingId: mockAuthor.id },
+      ]);
+
+      const res = await articlesService.getFeed(
+        { limit: 10, offset: 0 },
+        'reader-uuid-1',
+      );
+
+      expect(articleListQueryBuilder.innerJoin).toHaveBeenCalledWith(
+        FollowEntity,
+        'follow',
+        'follow.followingId = article.authorId AND follow.followerId = :currentUserId',
+        { currentUserId: 'reader-uuid-1' },
+      );
+      expect(res.articlesCount).toBe(1);
+      expect(res.articles[0].author.following).toBe(true);
+    });
+  });
+
   describe('createArticle', () => {
     it('should create an article with unique ASCII slug from Vietnamese title and sorted tags', async () => {
       usersService.findById!.mockResolvedValue(mockAuthor);
@@ -169,6 +263,67 @@ describe('ArticlesService', () => {
       expect(res.article.tagList).toEqual(['backend', 'nestjs']);
       expect(res.article.author.username).toBe('author1');
       expect(res.article.favoritesCount).toBe(0);
+    });
+
+    it('should fallback slug prefix to "article" when title contains only symbols and no tags', async () => {
+      usersService.findById!.mockResolvedValue(mockAuthor);
+
+      const res = await articlesService.createArticle(
+        {
+          article: {
+            title: '!!! ??? @@@',
+            description: 'Symbol title',
+            body: 'Body text',
+          },
+        },
+        mockAuthor.id,
+      );
+
+      expect(res.article.slug).toMatch(/^article-[0-9a-f]{8}$/);
+      expect(res.article.tagList).toEqual([]);
+    });
+
+    it('should retry slug generation when PostgreSQL throws unique constraint violation (23505)', async () => {
+      usersService.findById!.mockResolvedValue(mockAuthor);
+      mockManager.save
+        .mockRejectedValueOnce({ code: PG_UNIQUE_VIOLATION_CODE })
+        .mockImplementationOnce((_entity: unknown, data: unknown) =>
+          Promise.resolve(data),
+        );
+
+      const res = await articlesService.createArticle(
+        {
+          article: {
+            title: 'Concurrent Slug Test',
+            description: 'Desc',
+            body: 'Body',
+          },
+        },
+        mockAuthor.id,
+      );
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(2);
+      expect(res.article.slug).toMatch(/^concurrent-slug-test-[0-9a-f]{8}$/);
+    });
+
+    it('should rethrow non-23505 database error immediately without retrying', async () => {
+      usersService.findById!.mockResolvedValue(mockAuthor);
+      mockManager.save.mockRejectedValue(new Error('DB connection lost'));
+
+      await expect(
+        articlesService.createArticle(
+          {
+            article: {
+              title: 'Error Test',
+              description: 'Desc',
+              body: 'Body',
+            },
+          },
+          mockAuthor.id,
+        ),
+      ).rejects.toThrow('DB connection lost');
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
     });
 
     it('should throw UnauthorizedException when author no longer exists', async () => {
@@ -228,6 +383,23 @@ describe('ArticlesService', () => {
       expect(res.article.description).toBe('Updated description');
     });
 
+    it('should preserve existing slug when only body or description is updated', async () => {
+      articleRepository.findOne!.mockResolvedValue({ ...mockArticle });
+
+      const res = await articlesService.updateArticle(
+        mockArticle.slug,
+        {
+          article: {
+            body: 'Updated body only',
+          },
+        },
+        mockAuthor.id,
+      );
+
+      expect(res.article.slug).toBe(mockArticle.slug);
+      expect(res.article.body).toBe('Updated body only');
+    });
+
     it('should throw ForbiddenException when non-author attempts to update article', async () => {
       articleRepository.findOne!.mockResolvedValue({ ...mockArticle });
 
@@ -238,6 +410,18 @@ describe('ArticlesService', () => {
           'another-user-id',
         ),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw NotFoundException when updating non-existent article', async () => {
+      articleRepository.findOne!.mockResolvedValue(null);
+
+      await expect(
+        articlesService.updateArticle(
+          'missing-slug',
+          { article: { title: 'Title' } },
+          mockAuthor.id,
+        ),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -263,9 +447,26 @@ describe('ArticlesService', () => {
         articlesService.deleteArticle(mockArticle.slug, 'another-user-id'),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it('should throw NotFoundException when deleting non-existent article', async () => {
+      articleRepository.findOne!.mockResolvedValue(null);
+
+      await expect(
+        articlesService.deleteArticle('missing-slug', mockAuthor.id),
+      ).rejects.toThrow(NotFoundException);
+    });
   });
 
   describe('favorite & unfavorite', () => {
+    it('should skip insert if article is already favorited by user', async () => {
+      articleRepository.findOne!.mockResolvedValue({ ...mockArticle });
+      favoriteRepository.exists!.mockResolvedValue(true);
+
+      await articlesService.favoriteArticle(mockArticle.slug, 'reader-uuid');
+
+      expect(favoriteRepository.save).not.toHaveBeenCalled();
+    });
+
     it('should handle concurrent duplicate favorite (23505) gracefully', async () => {
       articleRepository.findOne!.mockResolvedValue({ ...mockArticle });
       favoriteRepository.exists!.mockResolvedValue(false);
@@ -281,6 +482,16 @@ describe('ArticlesService', () => {
       expect(res.article.slug).toBe(mockArticle.slug);
     });
 
+    it('should rethrow non-23505 errors during favorite insert', async () => {
+      articleRepository.findOne!.mockResolvedValue({ ...mockArticle });
+      favoriteRepository.exists!.mockResolvedValue(false);
+      favoriteRepository.save!.mockRejectedValue(new Error('DB write error'));
+
+      await expect(
+        articlesService.favoriteArticle(mockArticle.slug, 'reader-uuid'),
+      ).rejects.toThrow('DB write error');
+    });
+
     it('should delete favorite record on unfavorite', async () => {
       articleRepository.findOne!.mockResolvedValue({ ...mockArticle });
 
@@ -290,6 +501,18 @@ describe('ArticlesService', () => {
         userId: 'reader-uuid',
         articleId: mockArticle.id,
       });
+    });
+
+    it('should throw NotFoundException when favoriting or unfavoriting unknown slug', async () => {
+      articleRepository.findOne!.mockResolvedValue(null);
+
+      await expect(
+        articlesService.favoriteArticle('missing-slug', 'reader-uuid'),
+      ).rejects.toThrow(NotFoundException);
+
+      await expect(
+        articlesService.unfavoriteArticle('missing-slug', 'reader-uuid'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
