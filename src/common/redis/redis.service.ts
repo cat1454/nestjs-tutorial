@@ -14,6 +14,7 @@ const REDIS_MAX_RETRIES = 3;
 const REDIS_RETRY_DELAY_STEP_MS = 100;
 const REDIS_MAX_RETRY_DELAY_MS = 3000;
 const REDIS_BLACKLIST_PREFIX = 'blacklist:';
+const REDIS_USER_REVOKED_PREFIX = 'user:revoked_before:';
 const REDIS_REVOKED_VALUE = 'revoked';
 
 @Injectable()
@@ -82,6 +83,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async get(key: string): Promise<string | null> {
+    try {
+      return await this.client.get(key);
+    } catch {
+      return await this.throwRedisUnavailable();
+    }
+  }
+
   async exists(key: string): Promise<boolean> {
     try {
       const result = await this.client.exists(key);
@@ -99,5 +108,24 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async isBlacklisted(jti: string): Promise<boolean> {
     const key = `${REDIS_BLACKLIST_PREFIX}${jti}`;
     return this.exists(key);
+  }
+
+  async setUserRevokedBefore(
+    userId: string,
+    timestampMs: number,
+    ttlSeconds: number,
+  ): Promise<void> {
+    const key = `${REDIS_USER_REVOKED_PREFIX}${userId}`;
+    await this.set(key, String(timestampMs), ttlSeconds);
+  }
+
+  async getUserRevokedBefore(userId: string): Promise<number | null> {
+    const key = `${REDIS_USER_REVOKED_PREFIX}${userId}`;
+    const value = await this.get(key);
+    if (!value) {
+      return null;
+    }
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? null : parsed;
   }
 }

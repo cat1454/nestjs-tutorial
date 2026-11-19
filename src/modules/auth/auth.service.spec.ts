@@ -3,13 +3,11 @@ import {
   ConflictException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
 import { I18nService } from 'nestjs-i18n';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { RedisService } from '../../common/redis/redis.service.js';
+import { TokenService } from '../../common/auth/token.service.js';
 import { UserEntity } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { PG_UNIQUE_VIOLATION_CODE } from './auth.constants.js';
@@ -18,9 +16,7 @@ import { AuthService } from './auth.service.js';
 describe('AuthService', () => {
   let authService: AuthService;
   let usersService: Partial<Record<keyof UsersService, any>>;
-  let jwtService: Partial<Record<keyof JwtService, any>>;
-  let redisService: Partial<Record<keyof RedisService, any>>;
-  let configService: Partial<Record<keyof ConfigService, any>>;
+  let tokenService: Partial<Record<keyof TokenService, any>>;
   let i18nService: Partial<Record<keyof I18nService, any>>;
 
   const mockUser: UserEntity = {
@@ -44,25 +40,18 @@ describe('AuthService', () => {
       create: vi.fn(),
     };
 
-    jwtService = {
-      signAsync: vi.fn().mockResolvedValue('mocked-jwt-token'),
-      decode: vi.fn().mockReturnValue({
-        jti: 'jti-1234',
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      }),
-    };
-
-    redisService = {
-      addToBlacklist: vi.fn().mockResolvedValue(undefined),
-      isBlacklisted: vi.fn().mockResolvedValue(false),
-    };
-
-    configService = {
-      getOrThrow: vi.fn((key: string) => {
-        if (key === 'jwt.secret') return 'test-secret';
-        if (key === 'jwt.expiresIn') return '7d';
-        return '';
-      }),
+    tokenService = {
+      generateToken: vi.fn().mockResolvedValue('mocked-jwt-token'),
+      revokeToken: vi.fn().mockResolvedValue(undefined),
+      buildAuthResponse: vi.fn((user: UserEntity, token: string) => ({
+        user: {
+          email: user.email,
+          token,
+          username: user.username,
+          bio: user.bio,
+          image: user.image,
+        },
+      })),
     };
 
     i18nService = {
@@ -73,9 +62,7 @@ describe('AuthService', () => {
       providers: [
         AuthService,
         { provide: UsersService, useValue: usersService },
-        { provide: JwtService, useValue: jwtService },
-        { provide: RedisService, useValue: redisService },
-        { provide: ConfigService, useValue: configService },
+        { provide: TokenService, useValue: tokenService },
         { provide: I18nService, useValue: i18nService },
       ],
     }).compile();
@@ -196,35 +183,20 @@ describe('AuthService', () => {
   });
 
   describe('logout', () => {
-    it('should blacklist the token jti in Redis with remaining TTL (exp - now)', async () => {
-      const futureExp = Math.floor(Date.now() / 1000) + 1800;
-      const result = await authService.logout({
+    it('should delegate token revocation to TokenService and return localized message', async () => {
+      const payload = {
         id: 'uuid-1234',
         email: 'test@example.com',
         username: 'testuser',
         jti: 'jti-uuid-1',
-        exp: futureExp,
+        exp: Math.floor(Date.now() / 1000) + 1800,
         token: 'sample-token',
-      });
+      };
 
-      expect(redisService.addToBlacklist).toHaveBeenCalledWith(
-        'jti-uuid-1',
-        expect.any(Number),
-      );
+      const result = await authService.logout(payload);
+
+      expect(tokenService.revokeToken).toHaveBeenCalledWith(payload);
       expect(result.message).toBe('common.logout_success');
-    });
-
-    it('should throw BadRequestException if token has no exp claim', async () => {
-      jwtService.decode!.mockReturnValue(null);
-
-      await expect(
-        authService.logout({
-          id: 'uuid-1234',
-          email: 'test@example.com',
-          username: 'testuser',
-          token: 'invalid-token',
-        }),
-      ).rejects.toThrow(BadRequestException);
     });
   });
 

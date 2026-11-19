@@ -4,13 +4,10 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
 import { I18nContext, I18nService } from 'nestjs-i18n';
+import { TokenService } from '../../common/auth/token.service.js';
 import { CurrentUserPayload } from '../../common/decorators/current-user.decorator.js';
-import { RedisService } from '../../common/redis/redis.service.js';
 import { UserEntity } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import {
@@ -23,18 +20,11 @@ import { AuthResponseDto } from './dto/auth-response.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 
-interface DecodedTokenPayload {
-  jti?: string;
-  exp?: number;
-}
-
 @Injectable()
 export class AuthService {
   constructor(
     private readonly usersService: UsersService,
-    private readonly jwtService: JwtService,
-    private readonly redisService: RedisService,
-    private readonly configService: ConfigService,
+    private readonly tokenService: TokenService,
     private readonly i18n: I18nService,
   ) {}
 
@@ -82,9 +72,9 @@ export class AuthService {
       throw error;
     }
 
-    const token = await this.generateToken(newUser);
+    const token = await this.tokenService.generateToken(newUser);
 
-    return this.buildAuthResponse(newUser, token);
+    return this.tokenService.buildAuthResponse(newUser, token);
   }
 
   async login(dto: LoginDto): Promise<AuthResponseDto> {
@@ -110,34 +100,13 @@ export class AuthService {
       throw new UnauthorizedException(message);
     }
 
-    const token = await this.generateToken(user);
+    const token = await this.tokenService.generateToken(user);
 
-    return this.buildAuthResponse(user, token);
+    return this.tokenService.buildAuthResponse(user, token);
   }
 
   async logout(user: CurrentUserPayload): Promise<{ message: string }> {
-    const token = user?.token;
-    const decoded: DecodedTokenPayload | null =
-      user?.jti && user?.exp
-        ? { jti: user.jti, exp: user.exp }
-        : token
-          ? (this.jwtService.decode(token) as DecodedTokenPayload | null)
-          : null;
-
-    if (!decoded || typeof decoded.exp !== 'number') {
-      const message = await this.i18n.t('errors.logout_failed', {
-        lang: this.lang,
-      });
-      throw new BadRequestException(message);
-    }
-
-    const nowInSeconds = Math.floor(Date.now() / 1000);
-    const ttlSeconds = decoded.exp - nowInSeconds;
-    const blacklistKey = decoded.jti || token;
-
-    if (ttlSeconds > 0 && blacklistKey) {
-      await this.redisService.addToBlacklist(blacklistKey, ttlSeconds);
-    }
+    await this.tokenService.revokeToken(user);
 
     const message = await this.i18n.t('common.logout_success', {
       lang: this.lang,
@@ -154,36 +123,6 @@ export class AuthService {
       throw new UnauthorizedException(message);
     }
 
-    return this.buildAuthResponse(user, token);
-  }
-
-  private async generateToken(user: UserEntity): Promise<string> {
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      username: user.username,
-      jti: randomUUID(),
-    };
-
-    const secret = this.configService.getOrThrow<string>('jwt.secret');
-    const expiresIn =
-      this.configService.getOrThrow<JwtSignOptions['expiresIn']>('jwt.expiresIn');
-
-    return this.jwtService.signAsync(payload, {
-      secret,
-      expiresIn,
-    });
-  }
-
-  private buildAuthResponse(user: UserEntity, token: string): AuthResponseDto {
-    return {
-      user: {
-        email: user.email,
-        token,
-        username: user.username,
-        bio: user.bio,
-        image: user.image,
-      },
-    };
+    return this.tokenService.buildAuthResponse(user, token);
   }
 }

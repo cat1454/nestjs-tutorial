@@ -17,6 +17,8 @@ interface VerifiedJwtPayload {
   email: string;
   username: string;
   jti?: string;
+  iat?: number;
+  iatMs?: number;
   exp?: number;
 }
 
@@ -65,6 +67,20 @@ export class JwtAuthGuard implements CanActivate {
         lang: this.lang,
       });
       throw new UnauthorizedException(message);
+    }
+
+    const revokedBeforeMs = await this.redisService.getUserRevokedBefore(
+      payload.sub,
+    );
+    if (revokedBeforeMs !== null) {
+      const tokenIssuedAtMs =
+        payload.iatMs ?? (payload.iat ? payload.iat * 1000 : 0);
+      if (tokenIssuedAtMs <= revokedBeforeMs) {
+        const message = await this.i18n.t('errors.token_revoked', {
+          lang: this.lang,
+        });
+        throw new UnauthorizedException(message);
+      }
     }
 
     request.user = {
