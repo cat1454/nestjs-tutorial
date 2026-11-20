@@ -1,0 +1,15 @@
+export const ARTICLE_SLUG_MAX_LENGTH = 300;
+export const ARTICLE_TITLE_MAX_LENGTH = 255;
+export const ARTICLE_DESCRIPTION_MAX_LENGTH = 500;
+export const ARTICLE_BODY_MAX_LENGTH = 50000;
+
+export const TAG_NAME_MAX_LENGTH = 100;
+export const MAX_TAGS_PER_ARTICLE = 20;
+
+export const DEFAULT_ARTICLES_LIMIT = 20;
+export const MAX_ARTICLES_LIMIT = 100;
+export const DEFAULT_ARTICLES_OFFSET = 0;
+
+export const SLUG_RANDOM_SUFFIX_BYTES = 4;
+export const SLUG_BASE_MAX_LENGTH = 240;
+export const MAX_SLUG_GENERATION_RETRIES = 3;

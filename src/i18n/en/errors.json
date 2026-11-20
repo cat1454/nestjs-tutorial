@@ -18,5 +18,7 @@
   "cannot_unfollow_self": "You cannot unfollow yourself",
   "invalid_file": "Invalid uploaded file",
   "invalid_file_type": "Unsupported file type. Only JPEG, PNG, WEBP, and GIF images are allowed",
-  "file_too_large": "Uploaded file exceeds the 5MB size limit"
+  "file_too_large": "Uploaded file exceeds the 5MB size limit",
+  "article_not_found": "Article not found",
+  "article_forbidden": "You do not have permission to modify this article"
 }

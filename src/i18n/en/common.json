@@ -3,5 +3,6 @@
   "health_check": "System is healthy and operational.",
   "status_success": "Success",
   "welcome_title": "Welcome to Sun* NestJS API",
-  "logout_success": "Logged out successfully"
+  "logout_success": "Logged out successfully",
+  "article_deleted": "Article deleted successfully"
 }

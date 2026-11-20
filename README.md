@@ -1,41 +1,39 @@
-# Sun* NestJS Conduit (RealWorld) API Tutorial
+# Sun* NestJS Conduit (RealWorld) API
 
 > **Dự án thực hành chuyên đề NestJS Framework - Chương trình đào tạo Sun\* Asterisk**  
-> **Người thực hiện:** Huỳnh Phước Phú (cat1454)  
-> **Trainer:** Phạm Thanh Bình  
-> **Repository:** `d:/Sun/nestjs-tutorial`
+> **Người thực hiện:** Huỳnh Phước Phú (`cat1454`)  
+> **Trainer:** Phạm Thanh Bình
 
 ---
 
-## 🚀 1. Tổng Quan Dự Án
+## 1. Tổng Quan Dự Án
 
-Dự án triển khai một hệ thống backend RESTful API chuẩn mực theo đặc tả **RealWorld (Conduit)** với các tính năng:
-- **NestJS Framework (TypeScript)** với kiến trúc module hóa sạch sẽ.
-- **Tài liệu hóa API tương tác:** Swagger / OpenAPI 3.0 tại `/api/docs`.
-- **Hỗ trợ đa ngôn ngữ (i18n):** `nestjs-i18n` hỗ trợ Tiếng Anh (`en`) và Tiếng Việt (`vi`).
-- **Chuẩn hóa Request / Response:** DTO validation với `class-validator`, Response envelope với `TransformInterceptor`, xử lý lỗi tập trung với `HttpExceptionFilter`.
-- **Quản lý CSDL:** Migration thủ công (Manual TypeORM / PostgreSQL migrations).
-- **Xác thực bảo mật:** JWT Authentication & Redis Blacklist Token khi Logout.
-- **Đính kèm đa hình (Polymorphic Attachments):** Quản lý upload tệp cục bộ cho avatar và đa phương tiện.
-- **Tác vụ ngầm & Lập lịch:** Hàng đợi xử lý gửi email bất đồng bộ (`@nestjs/bull` + Redis) và cron job (`@nestjs/schedule`).
-- **Kiểm thử tự động:** Unit test và E2E testing đạt độ bao phủ nhánh C2 (Branch/Decision coverage) với cơ chế truncate DB và fake data tự động.
+Hệ thống backend RESTful API xây dựng theo đặc tả **RealWorld (Conduit)** bằng **NestJS Framework (TypeScript)**:
+- **Kiến trúc module hóa:** Phân tách rõ Controller, Service, Entity, DTO, Guard và Constants.
+- **Tài liệu API:** Swagger / OpenAPI 3.0 tại `/api/docs`.
+- **Đa ngôn ngữ (i18n):** `nestjs-i18n` hỗ trợ tiếng Anh (`en`) và tiếng Việt (`vi`) qua query (`?lang=vi`), header (`x-custom-lang`, `Accept-Language`).
+- **Chuẩn hóa Request / Response:** Global `ValidationPipe`, `TransformInterceptor` và `HttpExceptionFilter`.
+- **Cơ sở dữ liệu & Migration thủ công:** PostgreSQL + TypeORM (`synchronize: false`) với các file migration viết tay cho `users`, `follows`, `attachments`, `articles`, `tags`, `article_tags`, `favorites`.
+- **Xác thực & Bảo mật:** JWT (`jti`, `iatMs`), `bcrypt` (giới hạn 72 byte), Redis Blacklist khi logout, thu hồi toàn bộ phiên khi đổi mật khẩu, Rate Limiting (`@nestjs/throttler`), validate biến môi trường lúc khởi động (`validateEnv`).
+- **Quản lý tệp đa hình (Polymorphic Attachments):** Upload avatar cục bộ (`/public/uploads/avatars`), xác thực định dạng bằng magic bytes (PNG/JPEG/GIF/WebP), giới hạn 5MB ngay tại Multer và lưu metadata trong bảng `attachments` (`id` UUID, `target_type`, `target_id`).
+- **Kiểm thử tự động:** Unit Test (Vitest) và E2E Test (Supertest) chạy trên cơ sở dữ liệu test riêng biệt (`sun_conduit_test`).
 
 ---
 
-## 📌 2. Lộ Trình 6 Pull Requests
+## 2. Lộ Trình 6 Pull Requests
 
 | Pull Request | Nhánh (Branch) | Trọng Tâm Kỹ Thuật | Trạng Thái |
 | :---: | :--- | :--- | :---: |
-| **Pull 1** | `feature/pull-1-init-swagger-i18n` | Init NestJS, Swagger UI (`/api/docs`), i18n đa ngôn ngữ, Hello World API | ✅ Hoàn thành |
-| **Pull 2** | `feature/pull-2-manual-migration-and-auth` | Manual DB migrations, Register, Login, Logout (Redis Blacklist), Current User | ⏳ Chờ review PR 1 |
-| **Pull 3** | `feature/pull-3-user-profile-and-attachments` | Update User, Profile, Follow/Unfollow, Polymorphic Avatar Attachment | ⏳ Dự kiến |
-| **Pull 4** | `feature/pull-4-articles-crud-and-favorites` | CRUD Articles, Filter, Feed, Favorite, Slug generation | ⏳ Dự kiến |
-| **Pull 5** | `feature/pull-5-comments-and-background-jobs` | Comments, Bull Queue gửi mail với Redis, Scheduler cron jobs | ⏳ Dự kiến |
-| **Pull 6** | `feature/pull-6-e2e-testing-level-c2` | Integration testing, Truncate DB & Fake data, C2 Branch Coverage | ⏳ Dự kiến |
+| **Pull 1** | `feature/pull-1-init-swagger-i18n` | Init NestJS, Swagger UI (`/api/docs`), i18n đa ngôn ngữ, Hello World API | Đã merge (#1) |
+| **Pull 2** | `feature/pull-2-manual-migration-and-auth` | Manual DB migrations, Register, Login, Logout (Redis Blacklist), Get Current User | Đã merge (#3) |
+| **Pull 3** | `feature/pull-3-user-profiles-and-attachments` | Update User, Polymorphic Avatar Attachments, Get Profile, Follow/Unfollow | Đã merge (#4) |
+| **Pull 4** | `feature/pull-4-articles-crud-and-favorites` | CRUD Articles, Filter (`tag`, `author`, `favorited`), Feed, Favorite/Unfavorite, Tags | Đang review (#5) |
+| **Pull 5** | `feature/pull-5-comments-and-background-jobs` | Comments, Bull Queue gửi mail với Redis, Scheduler cron jobs | Dự kiến |
+| **Pull 6** | `feature/pull-6-e2e-testing-level-c2` | Integration testing, Truncate DB & Fake data, C2 Branch Coverage | Dự kiến |
 
 ---
 
-## 🛠️ 3. Cài Đặt & Khởi Chạy
+## 3. Cài Đặt & Khởi Chạy
 
 ### 3.1. Cài đặt Dependencies
 ```bash
@@ -43,73 +41,101 @@ npm install --legacy-peer-deps
 ```
 
 ### 3.2. Cấu hình Môi trường
-Sao chép file cấu hình mẫu `.env.example` thành `.env`:
+Sao chép file cấu hình mẫu `.env.example` thành `.env` và điền đầy đủ thông tin PostgreSQL, Redis, `JWT_SECRET`:
 ```bash
 cp .env.example .env
 ```
 
-### 3.3. Khởi chạy Server
+### 3.3. Khởi chạy PostgreSQL & Redis (tùy chọn với Docker Compose)
+```bash
+docker compose up -d
+```
+
+### 3.4. Quản lý Database Migration (Thủ công)
+```bash
+# Chạy các migration mới trên DB phát triển
+npm run migration:run
+
+# Chạy migration trên DB test riêng
+NODE_ENV=test npm run migration:run
+
+# Rollback migration gần nhất
+npm run migration:revert
+
+# Drop toàn bộ schema và chạy lại từ đầu
+npm run migration:reset
+```
+
+### 3.5. Khởi chạy Server
 ```bash
 # Chế độ phát triển (Watch mode)
 npm run start:dev
 
-# Chế độ sản phẩm (Build & Run)
+# Build & chạy chế độ sản phẩm
 npm run build
 npm run start:prod
 ```
 
-Server sẽ lắng nghe tại:
+Địa chỉ truy cập cục bộ:
 - **API Base URL:** `http://localhost:3000/api/v1`
 - **Swagger Documentation:** `http://localhost:3000/api/docs`
+- **Public Static Files (Avatars):** `http://localhost:3000/public/uploads/avatars/<uuid>.<ext>`
 
 ---
 
-## 🧪 4. Kiểm Thử (Testing) & Kiểm Tra Quy Chuẩn (Linting)
+## 4. Kiểm Thử & Linting
 
 ```bash
 # Chạy Unit Tests
 npm run test
 
-# Chạy E2E Tests
+# Chạy Unit Tests kèm báo cáo độ bao phủ (Coverage)
+npm run test:cov
+
+# Chạy E2E Tests (trên database test riêng sun_conduit_test)
 npm run test:e2e
 
-# Kiểm tra Linter
+# Kiểm tra Linter (Oxlint)
 npm run lint
 
-# Định dạng mã nguồn
+# Định dạng mã nguồn (Prettier)
 npm run format
 ```
 
 ---
 
-## 📡 5. Chi Tiết API Pull Request 1 (Hello World & Health Check)
+## 5. Danh Sách API Hiện Có
 
-- **Endpoint:** `GET /api/v1/hello`
-- **Query Params:**
-  - `name` *(string, optional, max: 50)*: Tên người nhận lời chào (mặc định: `Sunner`).
-  - `lang` *(string, optional, enum: `en`, `vi`)*: Ngôn ngữ phản hồi (mặc định: `en`).
-- **Headers:**
-  - `Accept-Language: vi` (hoặc `en`)
-  - `x-custom-lang: vi`
+### Health & i18n
+| Method | Endpoint | Auth | Mô tả |
+| :--- | :--- | :---: | :--- |
+| `GET` | `/api/v1/hello` | Không | Kiểm tra hệ thống và đa ngôn ngữ (`?name=&lang=en\|vi`) |
 
-### Ví dụ Request & Response:
-**Request:**
-```http
-GET /api/v1/hello?name=Binh&lang=vi HTTP/1.1
-Host: localhost:3000
-```
+### Authentication & Users
+| Method | Endpoint | Auth | Mô tả |
+| :--- | :--- | :---: | :--- |
+| `POST` | `/api/v1/users` | Không | Đăng ký tài khoản mới (Rate limited) |
+| `POST` | `/api/v1/users/login` | Không | Đăng nhập và nhận JWT token (Rate limited) |
+| `POST` | `/api/v1/users/logout` | Bắt buộc | Đăng xuất và đưa `jti` vào Redis blacklist |
+| `GET` | `/api/v1/user` | Bắt buộc | Lấy thông tin người dùng hiện tại |
+| `PUT` | `/api/v1/user` | Bắt buộc | Cập nhật thông tin user, upload avatar (`multipart/form-data`, trường `avatar`), đổi mật khẩu thu hồi toàn bộ phiên cũ |
 
-**Response (200 OK):**
-```json
-{
-  "statusCode": 200,
-  "message": "Xin chào Binh! Chào mừng bạn đến với Sun* NestJS Tutorial API.",
-  "data": {
-    "greeting": "Xin chào Binh! Chào mừng bạn đến với Sun* NestJS Tutorial API.",
-    "healthCheck": "Hệ thống đang hoạt động ổn định và sẵn sàng.",
-    "locale": "vi",
-    "serverTime": "2026-11-06T08:30:00.000Z"
-  },
-  "timestamp": "2026-11-06T08:30:00.000Z"
-}
-```
+### Profiles & Follows
+| Method | Endpoint | Auth | Mô tả |
+| :--- | :--- | :---: | :--- |
+| `GET` | `/api/v1/profiles/:username` | Tùy chọn | Xem hồ sơ công khai kèm trạng thái `following` |
+| `POST` | `/api/v1/profiles/:username/follow` | Bắt buộc | Theo dõi người dùng |
+| `DELETE` | `/api/v1/profiles/:username/follow` | Bắt buộc | Bỏ theo dõi người dùng |
+
+### Articles, Feed, Favorites & Tags
+| Method | Endpoint | Auth | Mô tả |
+| :--- | :--- | :---: | :--- |
+| `GET` | `/api/v1/articles` | Tùy chọn | Danh sách bài viết (lọc `tag`, `author`, `favorited`, phân trang `limit`/`offset`) |
+| `GET` | `/api/v1/articles/feed` | Bắt buộc | Bảng tin từ các tác giả đang theo dõi (`limit`, `offset`) |
+| `GET` | `/api/v1/articles/:slug` | Tùy chọn | Xem chi tiết bài viết theo `slug` |
+| `POST` | `/api/v1/articles` | Bắt buộc | Tạo bài viết mới (tự động sinh slug duy nhất và gắn `tagList`) |
+| `PUT` | `/api/v1/articles/:slug` | Bắt buộc (Tác giả) | Cập nhật bài viết (đổi tiêu đề sẽ cập nhật `slug` mới) |
+| `DELETE` | `/api/v1/articles/:slug` | Bắt buộc (Tác giả) | Xóa bài viết |
+| `POST` | `/api/v1/articles/:slug/favorite` | Bắt buộc | Yêu thích bài viết |
+| `DELETE` | `/api/v1/articles/:slug/favorite` | Bắt buộc | Bỏ yêu thích bài viết |
+| `GET` | `/api/v1/tags` | Không | Lấy danh sách toàn bộ tags |
