@@ -7,6 +7,7 @@ import { ArticleEntity } from '../modules/articles/entities/article.entity.js';
 import { FavoriteEntity } from '../modules/articles/entities/favorite.entity.js';
 import { TagEntity } from '../modules/articles/entities/tag.entity.js';
 import { AttachmentEntity } from '../modules/attachments/entities/attachment.entity.js';
+import { CommentEntity } from '../modules/comments/entities/comment.entity.js';
 import { FollowEntity } from '../modules/profiles/entities/follow.entity.js';
 import { UserEntity } from '../modules/users/entities/user.entity.js';
 
@@ -32,6 +33,7 @@ export const dataSourceOptions: DataSourceOptions = {
     ArticleEntity,
     TagEntity,
     FavoriteEntity,
+    CommentEntity,
   ],
   migrations: [path.join(__dirname, 'migrations', '*{.ts,.js}')],
   synchronize: false,

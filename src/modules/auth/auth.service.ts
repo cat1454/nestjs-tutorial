@@ -2,12 +2,14 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { I18nContext, I18nService } from 'nestjs-i18n';
 import { TokenService } from '../../common/auth/token.service.js';
 import { CurrentUserPayload } from '../../common/decorators/current-user.decorator.js';
+import { MailService } from '../mail/mail.service.js';
 import { UserEntity } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import {
@@ -22,9 +24,12 @@ import { RegisterDto } from './dto/register.dto.js';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly tokenService: TokenService,
+    private readonly mailService: MailService,
     private readonly i18n: I18nService,
   ) {}
 
@@ -73,6 +78,17 @@ export class AuthService {
     }
 
     const token = await this.tokenService.generateToken(newUser);
+
+    try {
+      await this.mailService.sendWelcomeEmail({
+        recipientEmail: newUser.email,
+        username: newUser.username,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to enqueue welcome email for "${newUser.email}": ${(error as Error).message}`,
+      );
+    }
 
     return this.tokenService.buildAuthResponse(newUser, token);
   }
