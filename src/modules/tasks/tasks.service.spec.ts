@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import * as fs from 'fs/promises';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { RedisService } from '../../common/redis/redis.service.js';
 import { ArticleEntity } from '../articles/entities/article.entity.js';
 import { AttachmentEntity } from '../attachments/entities/attachment.entity.js';
 import { MailService } from '../mail/mail.service.js';
@@ -21,6 +22,7 @@ describe('TasksService', () => {
   let userRepo: { find: ReturnType<typeof vi.fn> };
   let attachmentRepo: { find: ReturnType<typeof vi.fn> };
   let mailService: { sendDailyDigestEmail: ReturnType<typeof vi.fn> };
+  let redisService: { acquireLock: ReturnType<typeof vi.fn> };
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -34,6 +36,9 @@ describe('TasksService', () => {
     mailService = {
       sendDailyDigestEmail: vi.fn().mockResolvedValue(undefined),
     };
+    redisService = {
+      acquireLock: vi.fn().mockResolvedValue(true),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -46,6 +51,7 @@ describe('TasksService', () => {
           useValue: attachmentRepo,
         },
         { provide: MailService, useValue: mailService },
+        { provide: RedisService, useValue: redisService },
       ],
     }).compile();
 
@@ -55,6 +61,16 @@ describe('TasksService', () => {
   describe('handleDailyDigest', () => {
     it('should skip when scheduler is disabled', async () => {
       configService.get.mockReturnValue(false);
+
+      const res = await service.handleDailyDigest();
+
+      expect(res).toEqual({ skipped: true, articlesCount: 0, emailsQueued: 0 });
+      expect(redisService.acquireLock).not.toHaveBeenCalled();
+      expect(articleRepo.find).not.toHaveBeenCalled();
+    });
+
+    it('should skip when distributed lock is already held by another replica', async () => {
+      redisService.acquireLock.mockResolvedValueOnce(false);
 
       const res = await service.handleDailyDigest();
 
@@ -99,12 +115,27 @@ describe('TasksService', () => {
         emailsQueued: 1,
       });
       expect(mailService.sendDailyDigestEmail).toHaveBeenCalledTimes(2);
+      expect(mailService.sendDailyDigestEmail).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ recipientEmail: 'u1@example.com' }),
+        expect.stringMatching(/^daily-digest-\d{4}-\d{2}-\d{2}-u1$/),
+      );
     });
   });
 
   describe('handleOrphanAvatarsCleanup', () => {
     it('should skip when scheduler is disabled', async () => {
       configService.get.mockReturnValue(false);
+
+      const res = await service.handleOrphanAvatarsCleanup();
+
+      expect(res).toEqual({ skipped: true, removedCount: 0 });
+      expect(redisService.acquireLock).not.toHaveBeenCalled();
+      expect(fs.readdir).not.toHaveBeenCalled();
+    });
+
+    it('should skip when distributed lock is already held by another replica', async () => {
+      redisService.acquireLock.mockResolvedValueOnce(false);
 
       const res = await service.handleOrphanAvatarsCleanup();
 

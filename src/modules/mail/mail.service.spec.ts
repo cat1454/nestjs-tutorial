@@ -61,7 +61,7 @@ describe('MailService', () => {
     );
   });
 
-  it('should enqueue daily digest email job with retry options', async () => {
+  it('should enqueue daily digest email job with retry options and deduplication jobId', async () => {
     const payload = {
       recipientEmail: 'alice@example.com',
       recipientUsername: 'alice',
@@ -74,12 +74,15 @@ describe('MailService', () => {
       ],
     };
 
-    await service.sendDailyDigestEmail(payload);
+    await service.sendDailyDigestEmail(payload, 'daily-digest-2026-11-25-u1');
 
     expect(mailQueue.add).toHaveBeenCalledWith(
       MAIL_JOB_NAMES.DAILY_DIGEST,
       payload,
-      MAIL_JOB_DEFAULT_OPTIONS,
+      {
+        ...MAIL_JOB_DEFAULT_OPTIONS,
+        jobId: 'daily-digest-2026-11-25-u1',
+      },
     );
   });
 });

@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { MoreThanOrEqual, Repository } from 'typeorm';
+import { RedisService } from '../../common/redis/redis.service.js';
 import { ArticleEntity } from '../articles/entities/article.entity.js';
 import {
   AttachmentTargetType,
@@ -14,10 +15,13 @@ import { AttachmentEntity } from '../attachments/entities/attachment.entity.js';
 import { MailService } from '../mail/mail.service.js';
 import { UserEntity } from '../users/entities/user.entity.js';
 import {
+  CRON_LOCK_TTL_SECONDS,
   DAILY_DIGEST_CRON,
+  DAILY_DIGEST_LOCK_KEY_PREFIX,
   DAILY_DIGEST_LOOKBACK_HOURS,
   DAILY_DIGEST_TOP_ARTICLES_LIMIT,
   ORPHAN_AVATARS_CLEANUP_CRON,
+  ORPHAN_AVATARS_LOCK_KEY_PREFIX,
 } from './tasks.constants.js';
 
 export interface DailyDigestResult {
@@ -44,15 +48,33 @@ export class TasksService {
     @InjectRepository(AttachmentEntity)
     private readonly attachmentRepository: Repository<AttachmentEntity>,
     private readonly mailService: MailService,
+    private readonly redisService: RedisService,
   ) {}
 
   private get isSchedulerEnabled(): boolean {
     return this.configService.get<boolean>('scheduler.enabled', false);
   }
 
+  private getUtcDateKey(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
   @Cron(DAILY_DIGEST_CRON, { name: 'daily-articles-digest' })
   async handleDailyDigest(): Promise<DailyDigestResult> {
     if (!this.isSchedulerEnabled) {
+      return { skipped: true, articlesCount: 0, emailsQueued: 0 };
+    }
+
+    const dateKey = this.getUtcDateKey();
+    const lockKey = `${DAILY_DIGEST_LOCK_KEY_PREFIX}:${dateKey}`;
+    const lockAcquired = await this.redisService.acquireLock(
+      lockKey,
+      CRON_LOCK_TTL_SECONDS,
+    );
+    if (!lockAcquired) {
+      this.logger.debug(
+        `Daily digest skipped: distributed lock "${lockKey}" already held by another replica`,
+      );
       return { skipped: true, articlesCount: 0, emailsQueued: 0 };
     }
 
@@ -85,11 +107,14 @@ export class TasksService {
     let emailsQueued = 0;
     for (const user of users) {
       try {
-        await this.mailService.sendDailyDigestEmail({
-          recipientEmail: user.email,
-          recipientUsername: user.username,
-          articles: summaries,
-        });
+        await this.mailService.sendDailyDigestEmail(
+          {
+            recipientEmail: user.email,
+            recipientUsername: user.username,
+            articles: summaries,
+          },
+          `daily-digest-${dateKey}-${user.id}`,
+        );
         emailsQueued += 1;
       } catch (error) {
         this.logger.warn(
@@ -112,6 +137,19 @@ export class TasksService {
   @Cron(ORPHAN_AVATARS_CLEANUP_CRON, { name: 'cleanup-orphan-avatars' })
   async handleOrphanAvatarsCleanup(): Promise<OrphanAvatarsCleanupResult> {
     if (!this.isSchedulerEnabled) {
+      return { skipped: true, removedCount: 0 };
+    }
+
+    const dateKey = this.getUtcDateKey();
+    const lockKey = `${ORPHAN_AVATARS_LOCK_KEY_PREFIX}:${dateKey}`;
+    const lockAcquired = await this.redisService.acquireLock(
+      lockKey,
+      CRON_LOCK_TTL_SECONDS,
+    );
+    if (!lockAcquired) {
+      this.logger.debug(
+        `Orphan avatars cleanup skipped: distributed lock "${lockKey}" already held by another replica`,
+      );
       return { skipped: true, removedCount: 0 };
     }
 

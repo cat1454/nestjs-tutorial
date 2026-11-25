@@ -37,11 +37,13 @@ export class MailService {
     );
   }
 
-  async sendDailyDigestEmail(data: DailyDigestEmailJobData): Promise<void> {
-    await this.mailQueue.add(
-      MAIL_JOB_NAMES.DAILY_DIGEST,
-      data,
-      MAIL_JOB_DEFAULT_OPTIONS,
-    );
+  async sendDailyDigestEmail(
+    data: DailyDigestEmailJobData,
+    jobId?: string,
+  ): Promise<void> {
+    await this.mailQueue.add(MAIL_JOB_NAMES.DAILY_DIGEST, data, {
+      ...MAIL_JOB_DEFAULT_OPTIONS,
+      ...(jobId ? { jobId } : {}),
+    });
   }
 }

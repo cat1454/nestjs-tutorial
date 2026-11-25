@@ -76,5 +76,28 @@ describe('RedisService', () => {
       ServiceUnavailableException,
     );
   });
+
+  it('should acquire distributed lock atomically with NX and EX', async () => {
+    mockClient.set.mockResolvedValue('OK');
+
+    const acquired = await redisService.acquireLock('cron:lock:test', 3600);
+
+    expect(acquired).toBe(true);
+    expect(mockClient.set).toHaveBeenCalledWith(
+      'cron:lock:test',
+      'locked',
+      'EX',
+      3600,
+      'NX',
+    );
+  });
+
+  it('should return false when lock is already held or Redis errors', async () => {
+    mockClient.set.mockResolvedValueOnce(null);
+    expect(await redisService.acquireLock('cron:lock:test', 3600)).toBe(false);
+
+    mockClient.set.mockRejectedValueOnce(new Error('Connection refused'));
+    expect(await redisService.acquireLock('cron:lock:test', 3600)).toBe(false);
+  });
 });
 
