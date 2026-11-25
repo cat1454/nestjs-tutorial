@@ -11,11 +11,14 @@ import {
 } from 'nestjs-i18n';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { ArticlesModule } from './articles/articles.module.js';
 import { TokenModule } from './common/auth/token.module.js';
 import { RedisModule } from './common/redis/redis.module.js';
 import configuration from './config/configuration.js';
 import { validateEnv } from './config/env.validation.js';
+import { ArticlesModule } from './modules/articles/articles.module.js';
+import { ArticleEntity } from './modules/articles/entities/article.entity.js';
+import { FavoriteEntity } from './modules/articles/entities/favorite.entity.js';
+import { TagEntity } from './modules/articles/entities/tag.entity.js';
 import { AttachmentsModule } from './modules/attachments/attachments.module.js';
 import { AttachmentEntity } from './modules/attachments/entities/attachment.entity.js';
 import { AuthModule } from './modules/auth/auth.module.js';
@@ -67,7 +70,14 @@ const __dirname = path.dirname(__filename);
         username: configService.getOrThrow<string>('database.username'),
         password: configService.getOrThrow<string>('database.password'),
         database: configService.getOrThrow<string>('database.name'),
-        entities: [UserEntity, FollowEntity, AttachmentEntity],
+        entities: [
+          UserEntity,
+          FollowEntity,
+          AttachmentEntity,
+          ArticleEntity,
+          TagEntity,
+          FavoriteEntity,
+        ],
         synchronize: false,
         autoLoadEntities: true,
         logging: configService.get<string>('nodeEnv') === 'development',
@@ -80,8 +90,8 @@ const __dirname = path.dirname(__filename);
     UsersModule,
     AuthModule,
     ProfilesModule,
-    HelloModule,
     ArticlesModule,
+    HelloModule,
   ],
 })
 export class AppModule {}

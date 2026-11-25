@@ -3,6 +3,9 @@ import * as path from 'path';
 import { DataSource, DataSourceOptions } from 'typeorm';
 import { fileURLToPath } from 'url';
 import { validateEnv } from '../config/env.validation.js';
+import { ArticleEntity } from '../modules/articles/entities/article.entity.js';
+import { FavoriteEntity } from '../modules/articles/entities/favorite.entity.js';
+import { TagEntity } from '../modules/articles/entities/tag.entity.js';
 import { AttachmentEntity } from '../modules/attachments/entities/attachment.entity.js';
 import { FollowEntity } from '../modules/profiles/entities/follow.entity.js';
 import { UserEntity } from '../modules/users/entities/user.entity.js';
@@ -22,7 +25,14 @@ export const dataSourceOptions: DataSourceOptions = {
   username: env.DB_USERNAME,
   password: env.DB_PASSWORD,
   database: isTest ? env.DB_TEST_NAME || `${env.DB_NAME}_test` : env.DB_NAME,
-  entities: [UserEntity, FollowEntity, AttachmentEntity],
+  entities: [
+    UserEntity,
+    FollowEntity,
+    AttachmentEntity,
+    ArticleEntity,
+    TagEntity,
+    FavoriteEntity,
+  ],
   migrations: [path.join(__dirname, 'migrations', '*{.ts,.js}')],
   synchronize: false,
   logging: env.NODE_ENV === 'development',

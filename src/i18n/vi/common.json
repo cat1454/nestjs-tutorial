@@ -3,5 +3,6 @@
   "health_check": "Hệ thống đang hoạt động ổn định và sẵn sàng.",
   "status_success": "Thành công",
   "welcome_title": "Chào mừng đến với API Sun* NestJS",
-  "logout_success": "Đăng xuất thành công, token đã được đưa vào blacklist"
+  "logout_success": "Đăng xuất thành công, token đã được đưa vào blacklist",
+  "article_deleted": "Xóa bài viết thành công"
 }
