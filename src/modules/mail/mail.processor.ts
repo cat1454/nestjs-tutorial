@@ -2,7 +2,13 @@ import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bullmq';
+import * as fs from 'fs/promises';
+import Handlebars from 'handlebars';
+import { I18nService } from 'nestjs-i18n';
 import nodemailer, { Transporter } from 'nodemailer';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+import { DEFAULT_LANGUAGE } from '../auth/auth.constants.js';
 import { MAIL_JOB_NAMES, MAIL_QUEUE_NAME } from './mail.constants.js';
 import {
   DailyDigestEmailJobData,
@@ -12,21 +18,37 @@ import {
   WelcomeEmailJobData,
 } from './mail.types.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const TEMPLATES_DIR = path.join(__dirname, 'templates');
+
 @Injectable()
 @Processor(MAIL_QUEUE_NAME)
 export class MailProcessor extends WorkerHost {
   private readonly logger = new Logger(MailProcessor.name);
   private readonly mailEnabled: boolean;
   private readonly mailFrom: string;
+  private readonly fallbackLanguage: string;
   private readonly transporter: Transporter | null;
+  private readonly templateCache = new Map<
+    string,
+    Handlebars.TemplateDelegate
+  >();
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly i18n: I18nService,
+  ) {
     super();
 
     this.mailEnabled = this.configService.get<boolean>('mail.enabled', false);
     this.mailFrom = this.configService.get<string>(
       'mail.from',
       'Sun* Conduit <no-reply@sun-conduit.local>',
+    );
+    this.fallbackLanguage = this.configService.get<string>(
+      'fallbackLanguage',
+      DEFAULT_LANGUAGE,
     );
 
     if (this.mailEnabled) {
@@ -45,7 +67,7 @@ export class MailProcessor extends WorkerHost {
   }
 
   async process(job: Job<MailJobData>): Promise<void> {
-    const emailMessage = this.buildEmailMessage(job);
+    const emailMessage = await this.buildEmailMessage(job);
     if (!emailMessage) {
       this.logger.warn(`Unknown mail job name: ${job.name}`);
       return;
@@ -81,7 +103,23 @@ export class MailProcessor extends WorkerHost {
     );
   }
 
-  private buildEmailMessage(job: Job<MailJobData>): EmailMessage | null {
+  private async renderTemplate(
+    templateName: string,
+    context: Record<string, unknown>,
+  ): Promise<string> {
+    let compiled = this.templateCache.get(templateName);
+    if (!compiled) {
+      const templatePath = path.join(TEMPLATES_DIR, `${templateName}.hbs`);
+      const source = await fs.readFile(templatePath, 'utf-8');
+      compiled = Handlebars.compile(source);
+      this.templateCache.set(templateName, compiled);
+    }
+    return compiled(context);
+  }
+
+  private async buildEmailMessage(
+    job: Job<MailJobData>,
+  ): Promise<EmailMessage | null> {
     switch (job.name) {
       case MAIL_JOB_NAMES.WELCOME:
         return this.buildWelcomeEmail(job.data as WelcomeEmailJobData);
@@ -94,59 +132,102 @@ export class MailProcessor extends WorkerHost {
     }
   }
 
-  private buildWelcomeEmail(data: WelcomeEmailJobData): EmailMessage {
-    const safeUsername = this.escapeHtml(data.username);
+  private async translate(
+    key: string,
+    lang: string,
+    args?: Record<string, unknown>,
+  ): Promise<string> {
+    const result = await this.i18n.t(key, { lang, args });
+    return String(result);
+  }
+
+  private async buildWelcomeEmail(
+    data: WelcomeEmailJobData,
+  ): Promise<EmailMessage> {
+    const lang = data.lang || this.fallbackLanguage;
+    const [subject, heading, body] = await Promise.all([
+      this.translate('mail.welcome.subject', lang),
+      this.translate('mail.welcome.heading', lang, {
+        username: data.username,
+      }),
+      this.translate('mail.welcome.body', lang),
+    ]);
+
+    const html = await this.renderTemplate('welcome', { heading, body });
+
     return {
       to: data.recipientEmail,
-      subject: 'Welcome to Sun* Conduit!',
-      text: `Hi ${data.username}, welcome to Sun* Conduit! Your account has been created successfully.`,
-      html: `<h1>Welcome, ${safeUsername}!</h1><p>Your Sun* Conduit account has been created successfully.</p>`,
+      subject,
+      text: `${heading}\n\n${body}`,
+      html,
     };
   }
 
-  private buildNewCommentEmail(data: NewCommentEmailJobData): EmailMessage {
-    const safeRecipient = this.escapeHtml(data.recipientUsername);
-    const safeCommenter = this.escapeHtml(data.commenterUsername);
-    const safeTitle = this.escapeHtml(data.articleTitle);
-    const safeBody = this.escapeHtml(data.commentBody);
+  private async buildNewCommentEmail(
+    data: NewCommentEmailJobData,
+  ): Promise<EmailMessage> {
+    const lang = data.lang || this.fallbackLanguage;
+    const [subject, greeting, intro] = await Promise.all([
+      this.translate('mail.new_comment.subject', lang, {
+        articleTitle: data.articleTitle,
+      }),
+      this.translate('mail.new_comment.greeting', lang, {
+        recipientUsername: data.recipientUsername,
+      }),
+      this.translate('mail.new_comment.intro', lang, {
+        commenterUsername: data.commenterUsername,
+        articleTitle: data.articleTitle,
+      }),
+    ]);
+
+    const html = await this.renderTemplate('new-comment', {
+      greeting,
+      intro,
+      commentBody: data.commentBody,
+    });
 
     return {
       to: data.recipientEmail,
-      subject: `New comment on "${data.articleTitle}"`,
-      text: `Hi ${data.recipientUsername},\n\n${data.commenterUsername} commented on your article "${data.articleTitle}" (${data.articleSlug}):\n\n"${data.commentBody}"`,
-      html: `<p>Hi ${safeRecipient},</p><p><strong>${safeCommenter}</strong> commented on your article <strong>${safeTitle}</strong>:</p><blockquote>${safeBody}</blockquote>`,
+      subject,
+      text: `${greeting}\n\n${intro}\n\n"${data.commentBody}" (${data.articleSlug})`,
+      html,
     };
   }
 
-  private buildDailyDigestEmail(data: DailyDigestEmailJobData): EmailMessage {
-    const safeRecipient = this.escapeHtml(data.recipientUsername);
+  private async buildDailyDigestEmail(
+    data: DailyDigestEmailJobData,
+  ): Promise<EmailMessage> {
+    const lang = data.lang || this.fallbackLanguage;
+    const [subject, greeting, intro, byAuthor] = await Promise.all([
+      this.translate('mail.daily_digest.subject', lang, {
+        count: data.articles.length,
+      }),
+      this.translate('mail.daily_digest.greeting', lang, {
+        recipientUsername: data.recipientUsername,
+      }),
+      this.translate('mail.daily_digest.intro', lang),
+      this.translate('mail.daily_digest.by_author', lang),
+    ]);
+
     const textList = data.articles
       .map(
         (article, index) =>
-          `${index + 1}. ${article.title} by ${article.authorUsername} (${article.slug})`,
+          `${index + 1}. ${article.title} ${byAuthor} ${article.authorUsername} (${article.slug})`,
       )
       .join('\n');
-    const htmlList = data.articles
-      .map(
-        (article) =>
-          `<li><strong>${this.escapeHtml(article.title)}</strong> by ${this.escapeHtml(article.authorUsername)}</li>`,
-      )
-      .join('');
+
+    const html = await this.renderTemplate('daily-digest', {
+      greeting,
+      intro,
+      byAuthor,
+      articles: data.articles,
+    });
 
     return {
       to: data.recipientEmail,
-      subject: `Sun* Conduit Daily Digest (${data.articles.length} new articles)`,
-      text: `Hi ${data.recipientUsername},\n\nHere are the latest articles from the past 24 hours:\n${textList}`,
-      html: `<p>Hi ${safeRecipient},</p><p>Here are the latest articles from the past 24 hours:</p><ul>${htmlList}</ul>`,
+      subject,
+      text: `${greeting}\n\n${intro}\n${textList}`,
+      html,
     };
-  }
-
-  private escapeHtml(value: string): string {
-    return value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
   }
 }

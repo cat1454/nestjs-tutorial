@@ -1,6 +1,7 @@
 export interface WelcomeEmailJobData {
   recipientEmail: string;
   username: string;
+  lang?: string;
 }
 
 export interface NewCommentEmailJobData {
@@ -10,6 +11,7 @@ export interface NewCommentEmailJobData {
   articleTitle: string;
   articleSlug: string;
   commentBody: string;
+  lang?: string;
 }
 
 export interface DigestArticleSummary {
@@ -22,6 +24,12 @@ export interface DailyDigestEmailJobData {
   recipientEmail: string;
   recipientUsername: string;
   articles: DigestArticleSummary[];
+  lang?: string;
+}
+
+export interface DailyDigestBulkJobItem {
+  data: DailyDigestEmailJobData;
+  jobId?: string;
 }
 
 export type MailJobData =

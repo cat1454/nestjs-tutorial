@@ -52,17 +52,10 @@ export class CommentsService {
     });
     const saved = await this.commentRepository.save(comment);
 
-    const commentWithAuthor = await this.commentRepository.findOne({
+    const commentWithAuthor = await this.commentRepository.findOneOrFail({
       where: { id: saved.id },
       relations: { author: true },
     });
-
-    if (!commentWithAuthor) {
-      const message = await this.i18n.t('errors.comment_not_found', {
-        lang: this.lang,
-      });
-      throw new NotFoundException(message);
-    }
 
     if (article.author && article.author.id !== currentUserId) {
       try {
@@ -73,6 +66,7 @@ export class CommentsService {
           articleTitle: article.title,
           articleSlug: article.slug,
           commentBody: commentWithAuthor.body,
+          lang: this.lang,
         });
       } catch (error) {
         this.logger.warn(
@@ -95,7 +89,7 @@ export class CommentsService {
     const comments = await this.commentRepository.find({
       where: { articleId: article.id },
       relations: { author: true },
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'DESC', id: 'DESC' },
     });
 
     if (comments.length === 0) {

@@ -3,6 +3,8 @@ export const ORPHAN_AVATARS_CLEANUP_CRON = '0 3 * * *';
 
 export const DAILY_DIGEST_LOOKBACK_HOURS = 24;
 export const DAILY_DIGEST_TOP_ARTICLES_LIMIT = 5;
+export const DAILY_DIGEST_USER_BATCH_SIZE = 500;
+export const ORPHAN_AVATAR_GRACE_PERIOD_MS = 60 * 60 * 1000;
 
 export const CRON_LOCK_TTL_SECONDS = 23 * 60 * 60;
 export const DAILY_DIGEST_LOCK_KEY_PREFIX = 'cron:lock:daily-articles-digest';

@@ -69,6 +69,7 @@ describe('CommentsService', () => {
       create: vi.fn((data) => data),
       save: vi.fn(),
       findOne: vi.fn(),
+      findOneOrFail: vi.fn(),
       find: vi.fn(),
       delete: vi.fn(),
     };
@@ -107,7 +108,7 @@ describe('CommentsService', () => {
     it('should create comment and enqueue notification email when commenter is not article author', async () => {
       articleRepo.findOne.mockResolvedValue(article);
       commentRepo.save.mockResolvedValue({ id: savedComment.id });
-      commentRepo.findOne.mockResolvedValue(savedComment);
+      commentRepo.findOneOrFail.mockResolvedValue(savedComment);
 
       const res = await service.addComment(
         ' nestjs-queues-1234 ',
@@ -127,6 +128,7 @@ describe('CommentsService', () => {
         articleTitle: article.title,
         articleSlug: article.slug,
         commentBody: 'Great post!',
+        lang: 'en',
       });
       expect(res.comment).toEqual({
         id: savedComment.id,
@@ -150,7 +152,7 @@ describe('CommentsService', () => {
       };
       articleRepo.findOne.mockResolvedValue(article);
       commentRepo.save.mockResolvedValue({ id: ownComment.id });
-      commentRepo.findOne.mockResolvedValue(ownComment);
+      commentRepo.findOneOrFail.mockResolvedValue(ownComment);
 
       await service.addComment(
         article.slug,
@@ -164,7 +166,7 @@ describe('CommentsService', () => {
     it('should still return created comment if mail enqueue throws', async () => {
       articleRepo.findOne.mockResolvedValue(article);
       commentRepo.save.mockResolvedValue({ id: savedComment.id });
-      commentRepo.findOne.mockResolvedValue(savedComment);
+      commentRepo.findOneOrFail.mockResolvedValue(savedComment);
       mailService.sendNewCommentNotification.mockRejectedValueOnce(
         new Error('Redis unavailable'),
       );
@@ -207,6 +209,11 @@ describe('CommentsService', () => {
       followRepo.find.mockResolvedValue([{ followingId: commenterUser.id }]);
 
       const res = await service.getCommentsBySlug(article.slug, authorUser.id);
+      expect(commentRepo.find).toHaveBeenCalledWith({
+        where: { articleId: article.id },
+        relations: { author: true },
+        order: { createdAt: 'DESC', id: 'DESC' },
+      });
       expect(res.comments).toHaveLength(1);
       expect(res.comments[0].author.following).toBe(true);
     });

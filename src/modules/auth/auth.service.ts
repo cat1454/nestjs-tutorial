@@ -83,6 +83,7 @@ export class AuthService {
       await this.mailService.sendWelcomeEmail({
         recipientEmail: newUser.email,
         username: newUser.username,
+        lang: this.lang,
       });
     } catch (error) {
       this.logger.warn(

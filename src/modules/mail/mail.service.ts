@@ -7,6 +7,7 @@ import {
   MAIL_QUEUE_NAME,
 } from './mail.constants.js';
 import {
+  DailyDigestBulkJobItem,
   DailyDigestEmailJobData,
   NewCommentEmailJobData,
   WelcomeEmailJobData,
@@ -45,5 +46,24 @@ export class MailService {
       ...MAIL_JOB_DEFAULT_OPTIONS,
       ...(jobId ? { jobId } : {}),
     });
+  }
+
+  async sendDailyDigestEmailsBulk(
+    items: DailyDigestBulkJobItem[],
+  ): Promise<void> {
+    if (items.length === 0) {
+      return;
+    }
+
+    await this.mailQueue.addBulk(
+      items.map((item) => ({
+        name: MAIL_JOB_NAMES.DAILY_DIGEST,
+        data: item.data,
+        opts: {
+          ...MAIL_JOB_DEFAULT_OPTIONS,
+          ...(item.jobId ? { jobId: item.jobId } : {}),
+        },
+      })),
+    );
   }
 }

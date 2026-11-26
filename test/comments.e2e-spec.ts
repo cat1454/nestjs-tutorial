@@ -3,7 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter.js';
 import { TransformInterceptor } from '../src/common/interceptors/transform.interceptor.js';
@@ -19,7 +19,6 @@ describe('Comments & Mail Notification Queue (e2e)', () => {
   let commenterToken: string;
   let articleSlug: string;
   let secondArticleSlug: string;
-  let createdCommentId: string;
 
   const uniqueSuffix = Date.now();
   const author = {
@@ -123,6 +122,10 @@ describe('Comments & Mail Notification Queue (e2e)', () => {
   });
 
   describe('POST /api/v1/articles/:slug/comments', () => {
+    beforeEach(async () => {
+      await dataSource.query('DELETE FROM comments');
+    });
+
     it('401 Unauthorized when missing JWT token', async () => {
       await request(app.getHttpServer())
         .post(`/api/v1/articles/${articleSlug}/comments`)
@@ -173,25 +176,49 @@ describe('Comments & Mail Notification Queue (e2e)', () => {
         }),
       );
 
-      createdCommentId = comment.id;
       notifySpy.mockRestore();
     });
   });
 
   describe('GET /api/v1/articles/:slug/comments', () => {
+    let firstCommentId: string;
+    let secondCommentId: string;
+
+    beforeEach(async () => {
+      await dataSource.query('DELETE FROM comments');
+      await dataSource.query('DELETE FROM follows');
+
+      const firstRes = await request(app.getHttpServer())
+        .post(`/api/v1/articles/${articleSlug}/comments`)
+        .set('Authorization', `Bearer ${commenterToken}`)
+        .send({ comment: { body: 'First comment' } })
+        .expect(201);
+      firstCommentId = firstRes.body.data.comment.id;
+
+      await new Promise((resolve) => setTimeout(resolve, 15));
+
+      const secondRes = await request(app.getHttpServer())
+        .post(`/api/v1/articles/${articleSlug}/comments`)
+        .set('Authorization', `Bearer ${commenterToken}`)
+        .send({ comment: { body: 'Second newer comment' } })
+        .expect(201);
+      secondCommentId = secondRes.body.data.comment.id;
+    });
+
     it('404 Not Found when article slug does not exist', async () => {
       await request(app.getHttpServer())
         .get('/api/v1/articles/non-existent-slug-9999/comments')
         .expect(404);
     });
 
-    it('200 OK returns comments with following=false for unauthenticated viewer', async () => {
+    it('200 OK returns comments ordered newest-first with following=false for unauthenticated viewer', async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/v1/articles/${articleSlug}/comments`)
         .expect(200);
 
-      expect(res.body.data.comments).toHaveLength(1);
-      expect(res.body.data.comments[0].id).toBe(createdCommentId);
+      expect(res.body.data.comments).toHaveLength(2);
+      expect(res.body.data.comments[0].id).toBe(secondCommentId);
+      expect(res.body.data.comments[1].id).toBe(firstCommentId);
       expect(res.body.data.comments[0].author.following).toBe(false);
     });
 
@@ -206,15 +233,29 @@ describe('Comments & Mail Notification Queue (e2e)', () => {
         .set('Authorization', `Bearer ${authorToken}`)
         .expect(200);
 
-      expect(res.body.data.comments).toHaveLength(1);
+      expect(res.body.data.comments).toHaveLength(2);
+      expect(res.body.data.comments[0].id).toBe(secondCommentId);
       expect(res.body.data.comments[0].author.following).toBe(true);
     });
   });
 
   describe('DELETE /api/v1/articles/:slug/comments/:id', () => {
+    let commentId: string;
+
+    beforeEach(async () => {
+      await dataSource.query('DELETE FROM comments');
+
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/articles/${articleSlug}/comments`)
+        .set('Authorization', `Bearer ${commenterToken}`)
+        .send({ comment: { body: 'Comment to delete' } })
+        .expect(201);
+      commentId = res.body.data.comment.id;
+    });
+
     it('401 Unauthorized when missing JWT token', async () => {
       await request(app.getHttpServer())
-        .delete(`/api/v1/articles/${articleSlug}/comments/${createdCommentId}`)
+        .delete(`/api/v1/articles/${articleSlug}/comments/${commentId}`)
         .expect(401);
     });
 
@@ -227,23 +268,21 @@ describe('Comments & Mail Notification Queue (e2e)', () => {
 
     it('404 Not Found when comment does not belong to target article slug', async () => {
       await request(app.getHttpServer())
-        .delete(
-          `/api/v1/articles/${secondArticleSlug}/comments/${createdCommentId}`,
-        )
+        .delete(`/api/v1/articles/${secondArticleSlug}/comments/${commentId}`)
         .set('Authorization', `Bearer ${commenterToken}`)
         .expect(404);
     });
 
     it('403 Forbidden when another user attempts to delete the comment', async () => {
       await request(app.getHttpServer())
-        .delete(`/api/v1/articles/${articleSlug}/comments/${createdCommentId}`)
+        .delete(`/api/v1/articles/${articleSlug}/comments/${commentId}`)
         .set('Authorization', `Bearer ${authorToken}`)
         .expect(403);
     });
 
     it('200 OK deletes comment when requested by comment author', async () => {
       const res = await request(app.getHttpServer())
-        .delete(`/api/v1/articles/${articleSlug}/comments/${createdCommentId}`)
+        .delete(`/api/v1/articles/${articleSlug}/comments/${commentId}`)
         .set('Authorization', `Bearer ${commenterToken}`)
         .expect(200);
 

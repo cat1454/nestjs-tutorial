@@ -14,12 +14,15 @@ import {
 import { AttachmentEntity } from '../attachments/entities/attachment.entity.js';
 import { MailService } from '../mail/mail.service.js';
 import { UserEntity } from '../users/entities/user.entity.js';
+import { DEFAULT_LANGUAGE } from '../auth/auth.constants.js';
 import {
   CRON_LOCK_TTL_SECONDS,
   DAILY_DIGEST_CRON,
   DAILY_DIGEST_LOCK_KEY_PREFIX,
   DAILY_DIGEST_LOOKBACK_HOURS,
   DAILY_DIGEST_TOP_ARTICLES_LIMIT,
+  DAILY_DIGEST_USER_BATCH_SIZE,
+  ORPHAN_AVATAR_GRACE_PERIOD_MS,
   ORPHAN_AVATARS_CLEANUP_CRON,
   ORPHAN_AVATARS_LOCK_KEY_PREFIX,
 } from './tasks.constants.js';
@@ -94,33 +97,55 @@ export class TasksService {
       return { skipped: false, articlesCount: 0, emailsQueued: 0 };
     }
 
-    const users = await this.userRepository.find({
-      select: { id: true, email: true, username: true },
-    });
-
     const summaries = recentArticles.map((article) => ({
       title: article.title,
       slug: article.slug,
       authorUsername: article.author?.username ?? 'unknown',
     }));
 
+    const lang = this.configService.get<string>(
+      'fallbackLanguage',
+      DEFAULT_LANGUAGE,
+    );
+
     let emailsQueued = 0;
-    for (const user of users) {
+    let offset = 0;
+
+    while (true) {
+      const usersBatch = await this.userRepository.find({
+        select: { id: true, email: true, username: true },
+        order: { id: 'ASC' },
+        skip: offset,
+        take: DAILY_DIGEST_USER_BATCH_SIZE,
+      });
+
+      if (usersBatch.length === 0) {
+        break;
+      }
+
       try {
-        await this.mailService.sendDailyDigestEmail(
-          {
-            recipientEmail: user.email,
-            recipientUsername: user.username,
-            articles: summaries,
-          },
-          `daily-digest-${dateKey}-${user.id}`,
+        await this.mailService.sendDailyDigestEmailsBulk(
+          usersBatch.map((user) => ({
+            data: {
+              recipientEmail: user.email,
+              recipientUsername: user.username,
+              articles: summaries,
+              lang,
+            },
+            jobId: `daily-digest-${dateKey}-${user.id}`,
+          })),
         );
-        emailsQueued += 1;
+        emailsQueued += usersBatch.length;
       } catch (error) {
         this.logger.warn(
-          `Failed to enqueue daily digest email for user "${user.username}": ${(error as Error).message}`,
+          `Failed to enqueue daily digest batch (offset=${offset}, size=${usersBatch.length}): ${(error as Error).message}`,
         );
       }
+
+      if (usersBatch.length < DAILY_DIGEST_USER_BATCH_SIZE) {
+        break;
+      }
+      offset += DAILY_DIGEST_USER_BATCH_SIZE;
     }
 
     this.logger.log(
@@ -175,6 +200,7 @@ export class TasksService {
     );
 
     let removedCount = 0;
+    const now = Date.now();
     for (const fileName of diskFiles) {
       if (fileName.startsWith('.') || activeFileNames.has(fileName)) {
         continue;
@@ -182,6 +208,10 @@ export class TasksService {
 
       const filePath = path.join(avatarsDir, fileName);
       try {
+        const stats = await fs.stat(filePath);
+        if (now - stats.mtimeMs < ORPHAN_AVATAR_GRACE_PERIOD_MS) {
+          continue;
+        }
         await fs.unlink(filePath);
         removedCount += 1;
       } catch (error) {

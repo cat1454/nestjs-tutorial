@@ -100,6 +100,7 @@ describe('AuthService', () => {
       expect(mailService.sendWelcomeEmail).toHaveBeenCalledWith({
         recipientEmail: 'test@example.com',
         username: 'testuser',
+        lang: 'en',
       });
     });
 

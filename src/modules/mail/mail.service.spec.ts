@@ -10,11 +10,15 @@ import { MailService } from './mail.service.js';
 
 describe('MailService', () => {
   let service: MailService;
-  let mailQueue: { add: ReturnType<typeof vi.fn> };
+  let mailQueue: {
+    add: ReturnType<typeof vi.fn>;
+    addBulk: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(async () => {
     mailQueue = {
       add: vi.fn().mockResolvedValue({ id: 'job-1' }),
+      addBulk: vi.fn().mockResolvedValue([]),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -84,5 +88,56 @@ describe('MailService', () => {
         jobId: 'daily-digest-2026-11-25-u1',
       },
     );
+  });
+
+  it('should enqueue daily digest emails in bulk via addBulk and skip empty batches', async () => {
+    await service.sendDailyDigestEmailsBulk([]);
+    expect(mailQueue.addBulk).not.toHaveBeenCalled();
+
+    const items = [
+      {
+        data: {
+          recipientEmail: 'alice@example.com',
+          recipientUsername: 'alice',
+          articles: [
+            { title: 'Article 1', slug: 'article-1', authorUsername: 'bob' },
+          ],
+          lang: 'en',
+        },
+        jobId: 'daily-digest-2026-11-25-u1',
+      },
+      {
+        data: {
+          recipientEmail: 'charlie@example.com',
+          recipientUsername: 'charlie',
+          articles: [
+            { title: 'Article 1', slug: 'article-1', authorUsername: 'bob' },
+          ],
+          lang: 'vi',
+        },
+        jobId: 'daily-digest-2026-11-25-u2',
+      },
+    ];
+
+    await service.sendDailyDigestEmailsBulk(items);
+
+    expect(mailQueue.addBulk).toHaveBeenCalledWith([
+      {
+        name: MAIL_JOB_NAMES.DAILY_DIGEST,
+        data: items[0].data,
+        opts: {
+          ...MAIL_JOB_DEFAULT_OPTIONS,
+          jobId: 'daily-digest-2026-11-25-u1',
+        },
+      },
+      {
+        name: MAIL_JOB_NAMES.DAILY_DIGEST,
+        data: items[1].data,
+        opts: {
+          ...MAIL_JOB_DEFAULT_OPTIONS,
+          jobId: 'daily-digest-2026-11-25-u2',
+        },
+      },
+    ]);
   });
 });
