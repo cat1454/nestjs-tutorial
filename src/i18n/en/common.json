@@ -4,5 +4,6 @@
   "status_success": "Success",
   "welcome_title": "Welcome to Sun* NestJS API",
   "logout_success": "Logged out successfully",
-  "article_deleted": "Article deleted successfully"
+  "article_deleted": "Article deleted successfully",
+  "comment_deleted": "Comment deleted successfully"
 }

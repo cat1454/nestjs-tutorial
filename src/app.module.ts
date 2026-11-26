@@ -1,5 +1,7 @@
+import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
@@ -22,9 +24,13 @@ import { TagEntity } from './modules/articles/entities/tag.entity.js';
 import { AttachmentsModule } from './modules/attachments/attachments.module.js';
 import { AttachmentEntity } from './modules/attachments/entities/attachment.entity.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { CommentsModule } from './modules/comments/comments.module.js';
+import { CommentEntity } from './modules/comments/entities/comment.entity.js';
 import { HelloModule } from './modules/hello/hello.module.js';
+import { MailModule } from './modules/mail/mail.module.js';
 import { FollowEntity } from './modules/profiles/entities/follow.entity.js';
 import { ProfilesModule } from './modules/profiles/profiles.module.js';
+import { TasksModule } from './modules/tasks/tasks.module.js';
 import { UserEntity } from './modules/users/entities/user.entity.js';
 import { UsersModule } from './modules/users/users.module.js';
 
@@ -77,6 +83,7 @@ const __dirname = path.dirname(__filename);
           ArticleEntity,
           TagEntity,
           FavoriteEntity,
+          CommentEntity,
         ],
         synchronize: false,
         autoLoadEntities: true,
@@ -84,13 +91,27 @@ const __dirname = path.dirname(__filename);
       }),
       inject: [ConfigService],
     }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          host: configService.getOrThrow<string>('redis.host'),
+          port: configService.getOrThrow<number>('redis.port'),
+        },
+      }),
+      inject: [ConfigService],
+    }),
+    ScheduleModule.forRoot(),
     RedisModule,
     TokenModule,
+    MailModule,
     AttachmentsModule,
     UsersModule,
     AuthModule,
     ProfilesModule,
     ArticlesModule,
+    CommentsModule,
+    TasksModule,
     HelloModule,
   ],
 })

@@ -1,0 +1,18 @@
+{
+  "welcome": {
+    "subject": "Welcome to Sun* Conduit!",
+    "heading": "Welcome, {username}!",
+    "body": "Your Sun* Conduit account has been created successfully."
+  },
+  "new_comment": {
+    "subject": "New comment on \"{articleTitle}\"",
+    "greeting": "Hi {recipientUsername},",
+    "intro": "{commenterUsername} commented on your article \"{articleTitle}\":"
+  },
+  "daily_digest": {
+    "subject": "Sun* Conduit Daily Digest ({count} new articles)",
+    "greeting": "Hi {recipientUsername},",
+    "intro": "Here are the latest articles from the past 24 hours:",
+    "by_author": "by"
+  }
+}

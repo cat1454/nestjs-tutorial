@@ -4,5 +4,6 @@
   "status_success": "Thành công",
   "welcome_title": "Chào mừng đến với API Sun* NestJS",
   "logout_success": "Đăng xuất thành công, token đã được đưa vào blacklist",
-  "article_deleted": "Xóa bài viết thành công"
+  "article_deleted": "Xóa bài viết thành công",
+  "comment_deleted": "Xóa bình luận thành công"
 }

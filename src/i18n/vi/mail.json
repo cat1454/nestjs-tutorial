@@ -1,0 +1,18 @@
+{
+  "welcome": {
+    "subject": "Chào mừng đến với Sun* Conduit!",
+    "heading": "Chào mừng, {username}!",
+    "body": "Tài khoản Sun* Conduit của bạn đã được tạo thành công."
+  },
+  "new_comment": {
+    "subject": "Bình luận mới trên bài viết \"{articleTitle}\"",
+    "greeting": "Xin chào {recipientUsername},",
+    "intro": "{commenterUsername} đã bình luận trên bài viết \"{articleTitle}\" của bạn:"
+  },
+  "daily_digest": {
+    "subject": "Bản tin hằng ngày Sun* Conduit ({count} bài viết mới)",
+    "greeting": "Xin chào {recipientUsername},",
+    "intro": "Dưới đây là các bài viết mới nhất trong 24 giờ qua:",
+    "by_author": "bởi"
+  }
+}

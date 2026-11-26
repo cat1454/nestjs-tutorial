@@ -13,9 +13,10 @@ Hệ thống backend RESTful API xây dựng theo đặc tả **RealWorld (Condu
 - **Tài liệu API:** Swagger / OpenAPI 3.0 tại `/api/docs`.
 - **Đa ngôn ngữ (i18n):** `nestjs-i18n` hỗ trợ tiếng Anh (`en`) và tiếng Việt (`vi`) qua query (`?lang=vi`), header (`x-custom-lang`, `Accept-Language`).
 - **Chuẩn hóa Request / Response:** Global `ValidationPipe`, `TransformInterceptor` và `HttpExceptionFilter`.
-- **Cơ sở dữ liệu & Migration thủ công:** PostgreSQL + TypeORM (`synchronize: false`) với các file migration viết tay cho `users`, `follows`, `attachments`, `articles`, `tags`, `article_tags`, `favorites`.
+- **Cơ sở dữ liệu & Migration thủ công:** PostgreSQL + TypeORM (`synchronize: false`) với các file migration viết tay cho `users`, `follows`, `attachments`, `articles`, `tags`, `article_tags`, `favorites`, `comments`.
 - **Xác thực & Bảo mật:** JWT (`jti`, `iatMs`), `bcrypt` (giới hạn 72 byte), Redis Blacklist khi logout, thu hồi toàn bộ phiên khi đổi mật khẩu, Rate Limiting (`@nestjs/throttler`), validate biến môi trường lúc khởi động (`validateEnv`).
 - **Quản lý tệp đa hình (Polymorphic Attachments):** Upload avatar cục bộ (`/public/uploads/avatars`), xác thực định dạng bằng magic bytes (PNG/JPEG/GIF/WebP), giới hạn 5MB ngay tại Multer và lưu metadata trong bảng `attachments` (`id` UUID, `target_type`, `target_id`).
+- **Hàng đợi bất đồng bộ & Tác vụ định kỳ (BullMQ + Scheduler):** Sử dụng `@nestjs/bullmq` (Redis) kết hợp Nodemailer để gửi email bất đồng bộ (Welcome email khi đăng ký, thông báo bình luận mới, Daily Digest) kèm retry/exponential backoff; `@nestjs/schedule` chạy cron job gửi Daily Digest (8:00 hằng ngày) và dọn dẹp file avatar mồ côi (3:00 hằng ngày).
 - **Kiểm thử tự động:** Unit Test (Vitest) và E2E Test (Supertest) chạy trên cơ sở dữ liệu test riêng biệt (`sun_conduit_test`).
 
 ---
@@ -27,8 +28,8 @@ Hệ thống backend RESTful API xây dựng theo đặc tả **RealWorld (Condu
 | **Pull 1** | `feature/pull-1-init-swagger-i18n` | Init NestJS, Swagger UI (`/api/docs`), i18n đa ngôn ngữ, Hello World API | Đã merge (#1) |
 | **Pull 2** | `feature/pull-2-manual-migration-and-auth` | Manual DB migrations, Register, Login, Logout (Redis Blacklist), Get Current User | Đã merge (#3) |
 | **Pull 3** | `feature/pull-3-user-profiles-and-attachments` | Update User, Polymorphic Avatar Attachments, Get Profile, Follow/Unfollow | Đã merge (#4) |
-| **Pull 4** | `feature/pull-4-articles-crud-and-favorites` | CRUD Articles, Filter (`tag`, `author`, `favorited`), Feed, Favorite/Unfavorite, Tags | Đang review (#5) |
-| **Pull 5** | `feature/pull-5-comments-and-background-jobs` | Comments, Bull Queue gửi mail với Redis, Scheduler cron jobs | Dự kiến |
+| **Pull 4** | `feature/pull-4-articles-crud-and-favorites` | CRUD Articles, Filter (`tag`, `author`, `favorited`), Feed, Favorite/Unfavorite, Tags | Đã merge (#5) |
+| **Pull 5** | `feature/pull-5-comments-and-background-jobs` | Comments, BullMQ Queue gửi mail với Redis, Scheduler cron jobs | Đang review (#6) |
 | **Pull 6** | `feature/pull-6-e2e-testing-level-c2` | Integration testing, Truncate DB & Fake data, C2 Branch Coverage | Dự kiến |
 
 ---
@@ -139,3 +140,10 @@ npm run format
 | `POST` | `/api/v1/articles/:slug/favorite` | Bắt buộc | Yêu thích bài viết |
 | `DELETE` | `/api/v1/articles/:slug/favorite` | Bắt buộc | Bỏ yêu thích bài viết |
 | `GET` | `/api/v1/tags` | Không | Lấy danh sách toàn bộ tags |
+
+### Comments
+| Method | Endpoint | Auth | Mô tả |
+| :--- | :--- | :---: | :--- |
+| `POST` | `/api/v1/articles/:slug/comments` | Bắt buộc | Thêm bình luận vào bài viết và đẩy job gửi email thông báo cho tác giả bài viết |
+| `GET` | `/api/v1/articles/:slug/comments` | Tùy chọn | Lấy danh sách bình luận của bài viết (kèm trạng thái `following` của tác giả) |
+| `DELETE` | `/api/v1/articles/:slug/comments/:id` | Bắt buộc (Tác giả bình luận) | Xóa bình luận theo UUID |

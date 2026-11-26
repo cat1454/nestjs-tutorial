@@ -8,6 +8,7 @@ import * as bcrypt from 'bcrypt';
 import { I18nService } from 'nestjs-i18n';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TokenService } from '../../common/auth/token.service.js';
+import { MailService } from '../mail/mail.service.js';
 import { UserEntity } from '../users/entities/user.entity.js';
 import { UsersService } from '../users/users.service.js';
 import { PG_UNIQUE_VIOLATION_CODE } from './auth.constants.js';
@@ -17,6 +18,7 @@ describe('AuthService', () => {
   let authService: AuthService;
   let usersService: Partial<Record<keyof UsersService, any>>;
   let tokenService: Partial<Record<keyof TokenService, any>>;
+  let mailService: Partial<Record<keyof MailService, any>>;
   let i18nService: Partial<Record<keyof I18nService, any>>;
 
   const mockUser: UserEntity = {
@@ -54,6 +56,10 @@ describe('AuthService', () => {
       })),
     };
 
+    mailService = {
+      sendWelcomeEmail: vi.fn().mockResolvedValue(undefined),
+    };
+
     i18nService = {
       t: vi.fn().mockImplementation(async (key: string) => key),
     };
@@ -63,6 +69,7 @@ describe('AuthService', () => {
         AuthService,
         { provide: UsersService, useValue: usersService },
         { provide: TokenService, useValue: tokenService },
+        { provide: MailService, useValue: mailService },
         { provide: I18nService, useValue: i18nService },
       ],
     }).compile();
@@ -90,6 +97,29 @@ describe('AuthService', () => {
       expect(result.user.username).toBe('testuser');
       expect(result.user.token).toBe('mocked-jwt-token');
       expect(usersService.create).toHaveBeenCalled();
+      expect(mailService.sendWelcomeEmail).toHaveBeenCalledWith({
+        recipientEmail: 'test@example.com',
+        username: 'testuser',
+        lang: 'en',
+      });
+    });
+
+    it('should still succeed registration when welcome email enqueue fails', async () => {
+      usersService.existsByEmail!.mockResolvedValue(false);
+      usersService.create!.mockResolvedValue(mockUser);
+      mailService.sendWelcomeEmail!.mockRejectedValueOnce(
+        new Error('Redis queue down'),
+      );
+
+      const result = await authService.register({
+        user: {
+          username: 'testuser',
+          email: 'test@example.com',
+          password: 'password123',
+        },
+      });
+
+      expect(result.user.token).toBe('mocked-jwt-token');
     });
 
     it('should throw ConflictException if email is already taken', async () => {

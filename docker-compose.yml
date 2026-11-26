@@ -23,6 +23,14 @@ services:
     volumes:
       - redisdata:/data
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: sun_conduit_mailpit
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
 volumes:
   pgdata:
   redisdata:

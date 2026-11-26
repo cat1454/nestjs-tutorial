@@ -24,5 +24,21 @@ export default () => {
       host: process.env.REDIS_HOST,
       port: parseInt(process.env.REDIS_PORT || '6379', 10),
     },
+    mail: {
+      enabled: process.env.MAIL_ENABLED === 'true',
+      host: process.env.MAIL_HOST || 'localhost',
+      port: parseInt(process.env.MAIL_PORT || '1025', 10),
+      secure: process.env.MAIL_SECURE === 'true',
+      user: process.env.MAIL_USER || '',
+      pass: process.env.MAIL_PASS || '',
+      from:
+        process.env.MAIL_FROM || 'Sun* Conduit <no-reply@sun-conduit.local>',
+    },
+    scheduler: {
+      enabled:
+        process.env.SCHEDULER_ENABLED !== undefined
+          ? process.env.SCHEDULER_ENABLED === 'true'
+          : !isTest,
+    },
   };
 };

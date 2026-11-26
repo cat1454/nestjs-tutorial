@@ -1,0 +1,7 @@
+<p>{{greeting}}</p>
+<p>{{intro}}</p>
+<ul>
+{{#each articles}}
+  <li><strong>{{this.title}}</strong> {{../byAuthor}} {{this.authorUsername}}</li>
+{{/each}}
+</ul>

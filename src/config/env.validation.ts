@@ -68,6 +68,40 @@ class EnvironmentVariables {
   @Min(1)
   @Max(65535)
   REDIS_PORT: number;
+
+  @IsOptional()
+  @IsString()
+  MAIL_ENABLED?: string;
+
+  @IsOptional()
+  @IsString()
+  MAIL_HOST?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(65535)
+  MAIL_PORT?: number;
+
+  @IsOptional()
+  @IsString()
+  MAIL_SECURE?: string;
+
+  @IsOptional()
+  @IsString()
+  MAIL_USER?: string;
+
+  @IsOptional()
+  @IsString()
+  MAIL_PASS?: string;
+
+  @IsOptional()
+  @IsString()
+  MAIL_FROM?: string;
+
+  @IsOptional()
+  @IsString()
+  SCHEDULER_ENABLED?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>) {

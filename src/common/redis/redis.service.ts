@@ -100,6 +100,22 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async acquireLock(
+    key: string,
+    ttlSeconds: number,
+    value = 'locked',
+  ): Promise<boolean> {
+    try {
+      const result = await this.client.set(key, value, 'EX', ttlSeconds, 'NX');
+      return result === 'OK';
+    } catch (error) {
+      this.logger.warn(
+        `Failed to acquire distributed lock "${key}": ${(error as Error).message}`,
+      );
+      return false;
+    }
+  }
+
   async addToBlacklist(jti: string, expirySeconds: number): Promise<void> {
     const key = `${REDIS_BLACKLIST_PREFIX}${jti}`;
     await this.set(key, REDIS_REVOKED_VALUE, expirySeconds);
