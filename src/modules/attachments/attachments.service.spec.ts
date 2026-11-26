@@ -123,4 +123,49 @@ describe('AttachmentsService', () => {
     expect(result.savedAttachment.url).toBe('/public/uploads/avatars/new.png');
     expect(result.oldFileUrls).toEqual(['/public/uploads/avatars/old.png']);
   });
+
+  it('should detect JPEG, GIF, and WebP magic bytes, reject empty files, and ignore missing files on delete', async () => {
+    await expect(
+      attachmentsService.prepareAvatarUpload({
+        originalname: 'empty.png',
+        mimetype: 'image/png',
+        size: 0,
+        buffer: Buffer.alloc(0),
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    const jpegBuffer = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+    const jpeg = await attachmentsService.prepareAvatarUpload({
+      originalname: 'photo.jpg',
+      mimetype: 'image/jpeg',
+      size: jpegBuffer.length,
+      buffer: jpegBuffer,
+    });
+    expect(jpeg.verifiedMimeType).toBe('image/jpeg');
+
+    const gifBuffer = Buffer.from('GIF89a\x01\x00\x01\x00', 'ascii');
+    const gif = await attachmentsService.prepareAvatarUpload({
+      originalname: 'anim.gif',
+      mimetype: 'image/gif',
+      size: gifBuffer.length,
+      buffer: gifBuffer,
+    });
+    expect(gif.verifiedMimeType).toBe('image/gif');
+
+    const webpBuffer = Buffer.from('RIFF\x00\x00\x00\x00WEBP', 'ascii');
+    const webp = await attachmentsService.prepareAvatarUpload({
+      originalname: 'pic.webp',
+      mimetype: 'image/webp',
+      size: webpBuffer.length,
+      buffer: webpBuffer,
+    });
+    expect(webp.verifiedMimeType).toBe('image/webp');
+
+    await attachmentsService.deleteFilesByPublicUrls([
+      jpeg.publicUrl,
+      gif.publicUrl,
+      webp.publicUrl,
+      '/public/uploads/avatars/does-not-exist.png',
+    ]);
+  });
 });

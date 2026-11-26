@@ -168,5 +168,13 @@ describe('MailProcessor', () => {
     } as Job<MailJobData>);
 
     expect(sendMail).not.toHaveBeenCalled();
+
+    processor.onCompleted({ id: '1', name: MAIL_JOB_NAMES.WELCOME } as Job);
+    processor.onCompleted({ name: MAIL_JOB_NAMES.WELCOME } as Job);
+    processor.onFailed(
+      { id: '2', name: MAIL_JOB_NAMES.NEW_COMMENT } as Job,
+      new Error('SMTP timeout'),
+    );
+    processor.onFailed(undefined, new Error('Worker error'));
   });
 });

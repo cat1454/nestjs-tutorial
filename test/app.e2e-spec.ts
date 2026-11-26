@@ -1,29 +1,13 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
-import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module.js';
-import { TransformInterceptor } from './../src/common/interceptors/transform.interceptor.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createTestApp } from './helpers/create-test-app.js';
 
 describe('Hello World API (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: NestExpressApplication;
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1');
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        transform: true,
-      }),
-    );
-    app.useGlobalInterceptors(new TransformInterceptor());
-
-    await app.init();
+    ({ app } = await createTestApp());
   });
 
   afterAll(async () => {

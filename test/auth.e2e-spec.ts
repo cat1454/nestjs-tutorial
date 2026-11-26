@@ -1,59 +1,24 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
-import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AppModule } from '../src/app.module.js';
-import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter.js';
-import { TransformInterceptor } from '../src/common/interceptors/transform.interceptor.js';
-
-process.env.NODE_ENV = 'test';
+import { createTestApp } from './helpers/create-test-app.js';
+import { truncateDatabase } from './helpers/database.helper.js';
+import { buildRegisterPayload } from './helpers/factories.js';
 
 describe('Auth Flow (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: NestExpressApplication;
   let dataSource: DataSource;
   let userToken: string;
-  const uniqueSuffix = Date.now();
-  const testUser = {
-    username: `sunner_${uniqueSuffix}`,
-    email: `sunner_${uniqueSuffix}@example.com`,
-    password: 'Password@123',
-  };
+  const testUser = buildRegisterPayload();
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1');
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        transform: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
-    app.useGlobalInterceptors(new TransformInterceptor());
-    app.useGlobalFilters(new HttpExceptionFilter());
-
-    await app.init();
-    dataSource = app.get(DataSource);
-
-    const dbName = dataSource.options.database as string;
-    if (dbName && dbName.includes('test')) {
-      await dataSource.query('DELETE FROM users');
-    }
+    ({ app, dataSource } = await createTestApp());
+    await truncateDatabase(dataSource);
   });
 
   afterAll(async () => {
-    if (dataSource && dataSource.isInitialized) {
-      const dbName = dataSource.options.database as string;
-      if (dbName && dbName.includes('test')) {
-        await dataSource.query('DELETE FROM users');
-      }
-    }
+    await truncateDatabase(dataSource);
     await app.close();
   });
 

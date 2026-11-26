@@ -1,18 +1,17 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test, TestingModule } from '@nestjs/testing';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
-import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppModule } from '../src/app.module.js';
-import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter.js';
-import { TransformInterceptor } from '../src/common/interceptors/transform.interceptor.js';
 import { MailService } from '../src/modules/mail/mail.service.js';
-
-process.env.NODE_ENV = 'test';
+import { createTestApp } from './helpers/create-test-app.js';
+import { truncateDatabase } from './helpers/database.helper.js';
+import {
+  buildRegisterPayload,
+  createArticle,
+} from './helpers/factories.js';
 
 describe('Comments & Mail Notification Queue (e2e)', () => {
-  let app: INestApplication<App>;
+  let app: NestExpressApplication;
   let dataSource: DataSource;
   let mailService: MailService;
   let authorToken: string;
@@ -20,50 +19,13 @@ describe('Comments & Mail Notification Queue (e2e)', () => {
   let articleSlug: string;
   let secondArticleSlug: string;
 
-  const uniqueSuffix = Date.now();
-  const author = {
-    username: `c_author_${uniqueSuffix}`,
-    email: `c_author_${uniqueSuffix}@example.com`,
-    password: 'Password@123',
-  };
-  const commenter = {
-    username: `c_reader_${uniqueSuffix}`,
-    email: `c_reader_${uniqueSuffix}@example.com`,
-    password: 'Password@123',
-  };
+  const author = buildRegisterPayload();
+  const commenter = buildRegisterPayload();
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    app.setGlobalPrefix('api/v1');
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        transform: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
-    app.useGlobalInterceptors(new TransformInterceptor());
-    app.useGlobalFilters(new HttpExceptionFilter());
-
-    await app.init();
-    app.getHttpServer().setMaxListeners(25);
-    dataSource = app.get(DataSource);
+    ({ app, dataSource } = await createTestApp());
     mailService = app.get(MailService);
-
-    const dbName = dataSource.options.database as string;
-    if (dbName && dbName.includes('test')) {
-      await dataSource.query('DELETE FROM comments');
-      await dataSource.query('DELETE FROM favorites');
-      await dataSource.query('DELETE FROM article_tags');
-      await dataSource.query('DELETE FROM articles');
-      await dataSource.query('DELETE FROM tags');
-      await dataSource.query('DELETE FROM follows');
-      await dataSource.query('DELETE FROM users');
-    }
+    await truncateDatabase(dataSource);
 
     const authorRes = await request(app.getHttpServer())
       .post('/api/v1/users')
@@ -77,47 +39,21 @@ describe('Comments & Mail Notification Queue (e2e)', () => {
       .expect(201);
     commenterToken = commenterRes.body.data.user.token;
 
-    const articleRes = await request(app.getHttpServer())
-      .post('/api/v1/articles')
-      .set('Authorization', `Bearer ${authorToken}`)
-      .send({
-        article: {
-          title: 'Pull 5 Comments Article',
-          description: 'Testing comments and BullMQ',
-          body: 'Article body content',
-          tagList: ['nestjs', 'bullmq'],
-        },
-      })
-      .expect(201);
-    articleSlug = articleRes.body.data.article.slug;
+    const firstArticle = await createArticle(app, authorToken, {
+      title: 'Pull 5 Comments Article',
+      tagList: ['nestjs', 'bullmq'],
+    });
+    articleSlug = firstArticle.slug;
 
-    const secondArticleRes = await request(app.getHttpServer())
-      .post('/api/v1/articles')
-      .set('Authorization', `Bearer ${authorToken}`)
-      .send({
-        article: {
-          title: 'Second Article For Scoping',
-          description: 'Desc 2',
-          body: 'Body 2',
-        },
-      })
-      .expect(201);
-    secondArticleSlug = secondArticleRes.body.data.article.slug;
+    const secondArticle = await createArticle(app, authorToken, {
+      title: 'Second Article For Scoping',
+      tagList: [],
+    });
+    secondArticleSlug = secondArticle.slug;
   });
 
   afterAll(async () => {
-    if (dataSource && dataSource.isInitialized) {
-      const dbName = dataSource.options.database as string;
-      if (dbName && dbName.includes('test')) {
-        await dataSource.query('DELETE FROM comments');
-        await dataSource.query('DELETE FROM favorites');
-        await dataSource.query('DELETE FROM article_tags');
-        await dataSource.query('DELETE FROM articles');
-        await dataSource.query('DELETE FROM tags');
-        await dataSource.query('DELETE FROM follows');
-        await dataSource.query('DELETE FROM users');
-      }
-    }
+    await truncateDatabase(dataSource);
     await app.close();
   });
 
