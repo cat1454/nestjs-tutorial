@@ -139,4 +139,57 @@ describe('TokenService', () => {
       },
     });
   });
+
+  it('should handle generateToken without minIssuedAtMs, decode fallback, expired token, and duration formats', async () => {
+    await tokenService.generateToken(mockUser);
+    expect(jwtService.signAsync).toHaveBeenCalled();
+
+    const futureExp = Math.floor(Date.now() / 1000) + 600;
+    jwtService.decode!.mockReturnValueOnce({ exp: futureExp });
+    await tokenService.revokeToken({
+      id: 'user-uuid-1',
+      email: 'sunner@example.com',
+      username: 'sunner',
+      token: 'raw-fallback-token',
+    });
+    expect(redisService.addToBlacklist).toHaveBeenCalledWith(
+      'raw-fallback-token',
+      expect.any(Number),
+    );
+
+    redisService.addToBlacklist!.mockClear();
+    await tokenService.revokeToken({
+      id: 'user-uuid-1',
+      email: 'sunner@example.com',
+      username: 'sunner',
+      jti: 'expired-jti',
+      exp: Math.floor(Date.now() / 1000) - 10,
+      token: 'expired-token',
+    });
+    expect(redisService.addToBlacklist).not.toHaveBeenCalled();
+
+    await expect(
+      tokenService.revokeToken({
+        id: 'user-uuid-1',
+        email: 'sunner@example.com',
+        username: 'sunner',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    configService.getOrThrow!.mockReturnValueOnce(3600);
+    await tokenService.revokeAllUserTokens('user-uuid-1');
+    expect(redisService.setUserRevokedBefore).toHaveBeenLastCalledWith(
+      'user-uuid-1',
+      expect.any(Number),
+      3600,
+    );
+
+    configService.getOrThrow!.mockReturnValueOnce('invalid-format');
+    await tokenService.revokeAllUserTokens('user-uuid-1');
+    expect(redisService.setUserRevokedBefore).toHaveBeenLastCalledWith(
+      'user-uuid-1',
+      expect.any(Number),
+      7 * 24 * 60 * 60,
+    );
+  });
 });

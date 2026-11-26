@@ -139,5 +139,13 @@ describe('MailService', () => {
         },
       },
     ]);
+
+    await service.sendDailyDigestEmail(items[0].data);
+    await service.sendDailyDigestEmailsBulk([{ data: items[0].data }]);
+    expect(mailQueue.add).toHaveBeenCalledWith(
+      MAIL_JOB_NAMES.DAILY_DIGEST,
+      items[0].data,
+      MAIL_JOB_DEFAULT_OPTIONS,
+    );
   });
 });

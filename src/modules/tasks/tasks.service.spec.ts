@@ -267,5 +267,25 @@ describe('TasksService', () => {
         expect.stringContaining('active.png'),
       );
     });
+
+    it('should rethrow non-ENOENT readdir errors and continue when unlink fails', async () => {
+      const eacces = Object.assign(new Error('Permission denied'), {
+        code: 'EACCES',
+      });
+      vi.mocked(fs.readdir).mockRejectedValueOnce(eacces);
+      await expect(service.handleOrphanAvatarsCleanup()).rejects.toThrow(
+        'Permission denied',
+      );
+
+      vi.mocked(fs.readdir).mockResolvedValueOnce(['stale.png'] as any);
+      attachmentRepo.find.mockResolvedValue([]);
+      vi.mocked(fs.stat).mockResolvedValueOnce({
+        mtimeMs: Date.now() - ORPHAN_AVATAR_GRACE_PERIOD_MS - 10_000,
+      } as any);
+      vi.mocked(fs.unlink).mockRejectedValueOnce(new Error('EBUSY'));
+
+      const res = await service.handleOrphanAvatarsCleanup();
+      expect(res).toEqual({ skipped: false, removedCount: 0 });
+    });
   });
 });

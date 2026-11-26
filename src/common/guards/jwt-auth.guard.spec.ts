@@ -150,4 +150,36 @@ describe('JwtAuthGuard', () => {
       token: 'valid-token',
     });
   });
+
+  it('should reject unsupported authorization header scheme and support Token prefix with iat fallback', async () => {
+    const basicContext = createMockContext('Basic dXNlcjpwYXNz');
+    await expect(guard.canActivate(basicContext)).rejects.toThrow(
+      UnauthorizedException,
+    );
+
+    const tokenPrefixCtx = createMockContext('Token legacy-token');
+    jwtService.verifyAsync!.mockResolvedValue({
+      sub: 'user-id-456',
+      email: 'jane@example.com',
+      username: 'jane',
+      iat: 1700000000,
+    });
+    redisService.isBlacklisted!.mockResolvedValue(false);
+    redisService.getUserRevokedBefore!.mockResolvedValue(1700000005000);
+
+    await expect(guard.canActivate(tokenPrefixCtx)).rejects.toThrow(
+      UnauthorizedException,
+    );
+    expect(redisService.isBlacklisted).toHaveBeenCalledWith('legacy-token');
+
+    const noIatCtx = createMockContext('Token no-iat-token');
+    jwtService.verifyAsync!.mockResolvedValue({
+      sub: 'user-id-456',
+      email: 'jane@example.com',
+      username: 'jane',
+    });
+    await expect(guard.canActivate(noIatCtx)).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
 });

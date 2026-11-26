@@ -17,7 +17,7 @@ Hệ thống backend RESTful API xây dựng theo đặc tả **RealWorld (Condu
 - **Xác thực & Bảo mật:** JWT (`jti`, `iatMs`), `bcrypt` (giới hạn 72 byte), Redis Blacklist khi logout, thu hồi toàn bộ phiên khi đổi mật khẩu, Rate Limiting (`@nestjs/throttler`), validate biến môi trường lúc khởi động (`validateEnv`).
 - **Quản lý tệp đa hình (Polymorphic Attachments):** Upload avatar cục bộ (`/public/uploads/avatars`), xác thực định dạng bằng magic bytes (PNG/JPEG/GIF/WebP), giới hạn 5MB ngay tại Multer và lưu metadata trong bảng `attachments` (`id` UUID, `target_type`, `target_id`).
 - **Hàng đợi bất đồng bộ & Tác vụ định kỳ (BullMQ + Scheduler):** Sử dụng `@nestjs/bullmq` (Redis) kết hợp Nodemailer để gửi email bất đồng bộ (Welcome email khi đăng ký, thông báo bình luận mới, Daily Digest) kèm retry/exponential backoff; `@nestjs/schedule` chạy cron job gửi Daily Digest (8:00 hằng ngày) và dọn dẹp file avatar mồ côi (3:00 hằng ngày).
-- **Kiểm thử tự động:** Unit Test (Vitest) và E2E Test (Supertest) chạy trên cơ sở dữ liệu test riêng biệt (`sun_conduit_test`).
+- **Kiểm thử tự động & C2 Branch Coverage:** Unit Test (Vitest + V8 coverage với ngưỡng C2 Branches/Lines/Functions/Statements ≥ 90%) và Integration/E2E Test (Supertest + `TRUNCATE ... RESTART IDENTITY CASCADE` + `@faker-js/faker` factories) chạy trên cơ sở dữ liệu test riêng biệt (`sun_conduit_test`).
 
 ---
 
@@ -29,8 +29,8 @@ Hệ thống backend RESTful API xây dựng theo đặc tả **RealWorld (Condu
 | **Pull 2** | `feature/pull-2-manual-migration-and-auth` | Manual DB migrations, Register, Login, Logout (Redis Blacklist), Get Current User | Đã merge (#3) |
 | **Pull 3** | `feature/pull-3-user-profiles-and-attachments` | Update User, Polymorphic Avatar Attachments, Get Profile, Follow/Unfollow | Đã merge (#4) |
 | **Pull 4** | `feature/pull-4-articles-crud-and-favorites` | CRUD Articles, Filter (`tag`, `author`, `favorited`), Feed, Favorite/Unfavorite, Tags | Đã merge (#5) |
-| **Pull 5** | `feature/pull-5-comments-and-background-jobs` | Comments, BullMQ Queue gửi mail với Redis, Scheduler cron jobs | Đang review (#6) |
-| **Pull 6** | `feature/pull-6-e2e-testing-level-c2` | Integration testing, Truncate DB & Fake data, C2 Branch Coverage | Dự kiến |
+| **Pull 5** | `feature/pull-5-comments-and-background-jobs` | Comments, BullMQ Queue gửi mail với Redis, Scheduler cron jobs | Đã merge (#6) |
+| **Pull 6** | `feature/pull-6-e2e-testing-level-c2` | Integration testing, Truncate DB & Fake data, C2 Branch Coverage (≥ 90%) | Đang review (#7) |
 
 ---
 
@@ -93,8 +93,11 @@ npm run test
 # Chạy Unit Tests kèm báo cáo độ bao phủ (Coverage)
 npm run test:cov
 
-# Chạy E2E Tests (trên database test riêng sun_conduit_test)
+# Chạy E2E & Integration Tests (dùng Truncate DB + Faker trên sun_conduit_test)
 npm run test:e2e
+
+# Chạy E2E Tests kèm báo cáo độ bao phủ
+npm run test:e2e:cov
 
 # Kiểm tra Linter (Oxlint)
 npm run lint

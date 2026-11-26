@@ -1,16 +1,11 @@
-import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { Test, TestingModule } from '@nestjs/testing';
-import * as path from 'path';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AppModule } from '../src/app.module.js';
-import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter.js';
-import { TransformInterceptor } from '../src/common/interceptors/transform.interceptor.js';
 import { MAX_AVATAR_FILE_SIZE_BYTES } from '../src/modules/attachments/attachments.constants.js';
-
-process.env.NODE_ENV = 'test';
+import { createTestApp } from './helpers/create-test-app.js';
+import { truncateDatabase } from './helpers/database.helper.js';
+import { buildRegisterPayload } from './helpers/factories.js';
 
 describe('Users, Profiles, Follow & Polymorphic Avatar Upload (e2e)', () => {
   let app: NestExpressApplication;
@@ -18,47 +13,12 @@ describe('Users, Profiles, Follow & Polymorphic Avatar Upload (e2e)', () => {
   let aliceToken: string;
   let bobToken: string;
 
-  const uniqueSuffix = Date.now();
-  const alice = {
-    username: `alice_${uniqueSuffix}`,
-    email: `alice_${uniqueSuffix}@example.com`,
-    password: 'Password@123',
-  };
-  const bob = {
-    username: `bob_${uniqueSuffix}`,
-    email: `bob_${uniqueSuffix}@example.com`,
-    password: 'Password@123',
-  };
+  const alice = buildRegisterPayload();
+  const bob = buildRegisterPayload();
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication<NestExpressApplication>();
-    app.useStaticAssets(path.join(process.cwd(), 'public'), {
-      prefix: '/public/',
-    });
-    app.setGlobalPrefix('api/v1');
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        transform: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
-    app.useGlobalInterceptors(new TransformInterceptor());
-    app.useGlobalFilters(new HttpExceptionFilter());
-
-    await app.init();
-    dataSource = app.get(DataSource);
-
-    const dbName = dataSource.options.database as string;
-    if (dbName && dbName.includes('test')) {
-      await dataSource.query('DELETE FROM attachments');
-      await dataSource.query('DELETE FROM follows');
-      await dataSource.query('DELETE FROM users');
-    }
+    ({ app, dataSource } = await createTestApp());
+    await truncateDatabase(dataSource);
 
     const aliceRes = await request(app.getHttpServer())
       .post('/api/v1/users')
@@ -74,14 +34,7 @@ describe('Users, Profiles, Follow & Polymorphic Avatar Upload (e2e)', () => {
   });
 
   afterAll(async () => {
-    if (dataSource && dataSource.isInitialized) {
-      const dbName = dataSource.options.database as string;
-      if (dbName && dbName.includes('test')) {
-        await dataSource.query('DELETE FROM attachments');
-        await dataSource.query('DELETE FROM follows');
-        await dataSource.query('DELETE FROM users');
-      }
-    }
+    await truncateDatabase(dataSource);
     await app.close();
   });
 

@@ -99,5 +99,36 @@ describe('RedisService', () => {
     mockClient.set.mockRejectedValueOnce(new Error('Connection refused'));
     expect(await redisService.acquireLock('cron:lock:test', 3600)).toBe(false);
   });
+
+  it('should set without TTL, get values, handle get errors, and manage user revoked timestamps', async () => {
+    mockClient.set.mockResolvedValue('OK');
+    await redisService.set('plain-key', 'val');
+    expect(mockClient.set).toHaveBeenCalledWith('plain-key', 'val');
+
+    mockClient.get.mockResolvedValueOnce('1700000000000');
+    expect(await redisService.getUserRevokedBefore('u1')).toBe(1700000000000);
+
+    mockClient.get.mockResolvedValueOnce(null);
+    expect(await redisService.getUserRevokedBefore('u1')).toBeNull();
+
+    mockClient.get.mockResolvedValueOnce('not-a-number');
+    expect(await redisService.getUserRevokedBefore('u1')).toBeNull();
+
+    await redisService.setUserRevokedBefore('u1', 1700000000000, 600);
+    expect(mockClient.set).toHaveBeenCalledWith(
+      'user:revoked_before:u1',
+      '1700000000000',
+      'EX',
+      600,
+    );
+
+    mockClient.get.mockRejectedValueOnce(new Error('Redis down'));
+    await expect(redisService.get('any-key')).rejects.toThrow(
+      ServiceUnavailableException,
+    );
+
+    await redisService.onModuleDestroy();
+    expect(mockClient.quit).toHaveBeenCalled();
+  });
 });
 
